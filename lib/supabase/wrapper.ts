@@ -1,8 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { SupabaseClient, User, Session } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
 interface SupabaseContextType {
@@ -18,8 +17,12 @@ interface SupabaseContextType {
 
 const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
 
+// יצירת Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
 export function SupabaseProvider({ children }: { children: ReactNode }) {
-  const [supabase] = useState(() => createClientComponentClient());
+  const [supabase] = useState(() => createClient(supabaseUrl, supabaseAnonKey));
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,7 +101,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        // תיקון: שינוי הסדר של השרשור
+        // נסה לבצע שאילתה פשוטה
         const { error } = await supabase
           .from('contacts')
           .select('id')
@@ -109,10 +112,14 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if (!error || error.code === 'PGRST116') {
           setIsReady(true);
         } else if (error) {
-          console.error('Supabase connection error:', error);
+          console.warn('Supabase connection check:', error.message);
+          // עדיין נאפשר לאפליקציה לעבוד
+          setIsReady(true);
         }
       } catch (error) {
         console.error('Error checking Supabase connection:', error);
+        // עדיין נאפשר לאפליקציה לעבוד
+        setIsReady(true);
       }
     };
 
