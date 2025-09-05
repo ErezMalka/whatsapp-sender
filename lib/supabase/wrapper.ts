@@ -1,123 +1,174 @@
-// app/lib/supabase/wrapper.ts
-import { createClient } from '@supabase/supabase-js';
+'use client';
 
-// פתרון לבעיית encoding ב-StackBlitz
-const isStackBlitz = typeof process !== 'undefined' && process.env.STACKBLITZ === 'true';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { SupabaseClient, User, Session } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 
-// Polyfill עבור TextEncoder/TextDecoder אם חסר
-if (typeof globalThis.TextEncoder === 'undefined') {
-  const { TextEncoder, TextDecoder } = require('util');
-  globalThis.TextEncoder = TextEncoder;
-  globalThis.TextDecoder = TextDecoder;
+interface SupabaseContextType {
+  supabase: SupabaseClient;
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+  isReady: boolean;
+  signIn: (email: string, password: string) => Promise<any>;
+  signUp: (email: string, password: string) => Promise<any>;
+  signOut: () => Promise<any>;
 }
 
-// יצירת client עם error handling משופר
-export function createSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  
-  try {
-    const client = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: !isStackBlitz, // ב-StackBlitz נכבה session persistence
-        autoRefreshToken: !isStackBlitz,
-      },
-      global: {
-        headers: {
-          'x-stackblitz-workaround': isStackBlitz ? 'true' : 'false'
-        }
-      }
-    });
-    
-    return client;
-  } catch (error) {
-    console.error('Error creating Supabase client:', error);
-    // fallback to mock client if needed
-    return createMockClient();
-  }
-}
+const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
 
-// Mock client לפיתוח מקומי כשיש בעיות
-function createMockClient() {
-  console.warn('Using mock Supabase client');
-  
-  return {
-    from: (table: string) => ({
-      select: () => Promise.resolve({ data: getMockData(table), error: null }),
-      insert: (data: any) => Promise.resolve({ data, error: null }),
-      update: (data: any) => Promise.resolve({ data, error: null }),
-      delete: () => Promise.resolve({ data: null, error: null }),
-      eq: () => ({
-        single: () => Promise.resolve({ data: getMockData(table)[0], error: null })
-      })
-    }),
-    auth: {
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      signIn: () => Promise.resolve({ data: null, error: null }),
-      signOut: () => Promise.resolve({ error: null })
-    }
-  };
-}
-
-// Mock data למקרה חירום
-function getMockData(table: string) {
-  const mockData: Record<string, any[]> = {
-    tenants: [
-      { id: '1', name: 'Demo Company', created_at: new Date().toISOString() }
-    ],
-    contacts: [
-      { id: '1', name: 'John Doe', phone: '+972501234567', tenant_id: '1' },
-      { id: '2', name: 'Jane Smith', phone: '+972502345678', tenant_id: '1' }
-    ],
-    templates: [
-      { 
-        id: '1', 
-        name: 'ברכת יום הולדת', 
-        content: 'שלום {{name}}, מאחלים לך יום הולדת שמח! 🎉',
-        tenant_id: '1'
-      }
-    ],
-    messages: []
-  };
-  
-  return mockData[table] || [];
-}
-
-// Hook לשימוש ב-React components
-import { useEffect, useState } from 'react';
-
-export function useSupabase() {
-  const [client, setClient] = useState(() => createSupabaseClient());
+export function SupabaseProvider({ children }: { children: ReactNode }) {
+  const [supabase] = useState(() => createClientComponentClient());
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
-  
+  const router = useRouter();
+
   useEffect(() => {
-    // בדיקת חיבור
-    const checkConnection = async () => {
+    const getSession = async () => {
       try {
-        const { error } = await client.from('tenants').select('count').limit(1);
-        if (error) throw error;
-        setIsReady(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
       } catch (error) {
-        console.warn('Supabase connection issue, using mock:', error);
-        setClient(createMockClient() as any);
-        setIsReady(true);
+        console.error('Error fetching session:', error);
+      } finally {
+        setLoading(false);
       }
     };
-    
+
+    getSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        router.refresh();
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase, router]);
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      return { data, error: null };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      return { data: null, error };
+    }
+  };
+
+  const signUp = async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) throw error;
+      return { data, error: null };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      return { data: null, error };
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      router.push('/login');
+      return { error: null };
+    } catch (error) {
+      console.error('Sign out error:', error);
+      return { error };
+    }
+  };
+
+  // בדיקת חיבור ל-Supabase
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        // תיקון: שינוי הסדר של השרשור
+        const { error } = await supabase
+          .from('contacts')
+          .select('id')
+          .limit(1)
+          .single();
+        
+        // אם אין טבלה או אין רשומות, זה עדיין בסדר
+        if (!error || error.code === 'PGRST116') {
+          setIsReady(true);
+        } else if (error) {
+          console.error('Supabase connection error:', error);
+        }
+      } catch (error) {
+        console.error('Error checking Supabase connection:', error);
+      }
+    };
+
     checkConnection();
-  }, []);
-  
-  return { client, isReady };
+  }, [supabase]);
+
+  const value = {
+    supabase,
+    user,
+    session,
+    loading,
+    isReady,
+    signIn,
+    signUp,
+    signOut,
+  };
+
+  return (
+    <SupabaseContext.Provider value={value}>
+      {children}
+    </SupabaseContext.Provider>
+  );
 }
 
-// Utility functions
-export async function safeSupabaseCall<T>(
-  operation: () => Promise<{ data: T | null; error: any }>
-): Promise<{ data: T | null; error: any }> {
-  try {
-    return await operation();
-  } catch (error) {
-    console.error('Supabase operation failed:', error);
-    return { data: null, error };
+export function useSupabase() {
+  const context = useContext(SupabaseContext);
+  if (context === undefined) {
+    throw new Error('useSupabase must be used within a SupabaseProvider');
   }
+  return context;
+}
+
+// Helper hook for authentication guard
+export function useRequireAuth(redirectUrl: string = '/login') {
+  const { user, loading } = useSupabase();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push(redirectUrl);
+    }
+  }, [user, loading, router, redirectUrl]);
+
+  return { user, loading };
+}
+
+// Helper hook for guest guard (redirect if already authenticated)
+export function useGuestOnly(redirectUrl: string = '/dashboard') {
+  const { user, loading } = useSupabase();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.push(redirectUrl);
+    }
+  }, [user, loading, router, redirectUrl]);
+
+  return { user, loading };
 }
