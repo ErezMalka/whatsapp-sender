@@ -106,8 +106,8 @@ export default function CampaignsPage() {
       if (tagsError) {
         // If tags table doesn't exist, create tags from contacts
         const uniqueTags = new Set<string>();
-        contactsData?.forEach(contact => {
-          contact.tags?.forEach(tag => uniqueTags.add(tag));
+        contactsData?.forEach((contact: Contact) => {
+          contact.tags?.forEach((tag: string) => uniqueTags.add(tag));
         });
         
         const mockTags = Array.from(uniqueTags).map(name => ({
