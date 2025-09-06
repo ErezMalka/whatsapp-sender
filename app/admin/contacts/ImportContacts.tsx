@@ -1,330 +1,275 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 
-const TENANT_ID = '00000000-0000-0000-0000-000000000001';
+interface ImportContactsProps {
+  onImportComplete: () => void;
+  tenantId: string;
+}
 
-interface Contact {
-  id: string;
-  tenant_id: string;
+interface ContactData {
   name: string;
   phone: string;
-  email?: string;
+  email?: string | null;
   tags?: string[];
   status: string;
   opt_out: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
-
-interface Tag {
-  id: string;
   tenant_id: string;
-  name: string;
-  color?: string;
-  contacts_count?: number;
 }
 
-export default function ContactsPage() {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
-  
-  const [newContact, setNewContact] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    tags: [] as string[]
-  });
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+export default function ImportContacts({ onImportComplete, tenantId }: ImportContactsProps) {
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [preview, setPreview] = useState<ContactData[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
 
-  useEffect(() => {
-    fetchContacts();
-    fetchTags();
-  }, []);
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const fetchContacts = async () => {
+    setErrors([]);
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
     try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('tenant_id', TENANT_ID)
-        .order('created_at', { ascending: false });
+      let data: any[] = [];
 
-      if (error) throw error;
-      setContacts(data || []);
-    } catch (error) {
-      console.error('Error fetching contacts:', error);
-    } finally {
-      setLoading(false);
+      if (fileExtension === 'csv') {
+        const text = await file.text();
+        const result = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: (header) => header.trim(),
+        });
+        data = result.data;
+      } else if (['xlsx', 'xls'].includes(fileExtension || '')) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        data = XLSX.utils.sheet_to_json(firstSheet);
+      } else {
+        throw new Error('פורמט קובץ לא נתמך. השתמש ב-CSV או Excel');
+      }
+
+      const normalizedData: ContactData[] = data.map((row, index) => ({
+        name: row['שם'] || row['name'] || row['Name'] || `איש קשר ${index + 1}`,
+        phone: normalizePhone(
+          row['טלפון'] || row['phone'] || row['Phone'] || 
+          row['נייד'] || row['mobile'] || row['Mobile'] || ''
+        ),
+        email: row['אימייל'] || row['email'] || row['Email'] || null,
+        tags: parseTags(row['תגיות'] || row['tags'] || row['Tags']),
+        status: row['סטטוס'] || row['status'] || 'active',
+        opt_out: false,
+        tenant_id: tenantId
+      })).filter(contact => contact.phone);
+
+      setPreview(normalizedData.slice(0, 100));
+      setShowPreview(true);
+
+    } catch (error: any) {
+      console.error('Error parsing file:', error);
+      setErrors(['שגיאה בקריאת הקובץ: ' + error.message]);
     }
   };
 
-  const fetchTags = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tags')
-        .select('*')
-        .eq('tenant_id', TENANT_ID);
-
-      if (error) throw error;
-      setTags(data || []);
-    } catch (error) {
-      console.error('Error fetching tags:', error);
+  const normalizePhone = (phone: string): string => {
+    let cleaned = phone.toString().replace(/\D/g, '');
+    
+    if (cleaned.startsWith('0')) {
+      cleaned = '972' + cleaned.substring(1);
+    } else if (!cleaned.startsWith('972')) {
+      cleaned = '972' + cleaned;
     }
+    
+    return '+' + cleaned;
   };
 
-  const handleAddContact = async () => {
-    try {
-      const { error } = await supabase
-        .from('contacts')
-        .insert([{
-          ...newContact,
-          tenant_id: TENANT_ID,
-          status: 'active',
-          opt_out: false
-        }]);
-
-      if (error) throw error;
-      
-      setNewContact({ name: '', phone: '', email: '', tags: [] });
-      setShowAddForm(false);
-      fetchContacts();
-    } catch (error) {
-      console.error('Error adding contact:', error);
-      alert('שגיאה בהוספת איש קשר');
-    }
+  const parseTags = (tagsString: string | undefined): string[] => {
+    if (!tagsString) return [];
+    return tagsString.split(',').map(tag => tag.trim()).filter(Boolean);
   };
 
-  const handleUpdateContact = async () => {
-    if (!editingContact) return;
-
-    try {
-      const { error } = await supabase
-        .from('contacts')
-        .update({
-          name: editingContact.name,
-          phone: editingContact.phone,
-          email: editingContact.email,
-          tags: editingContact.tags
-        })
-        .eq('id', editingContact.id)
-        .eq('tenant_id', TENANT_ID);
-
-      if (error) throw error;
-      
-      setEditingContact(null);
-      fetchContacts();
-    } catch (error) {
-      console.error('Error updating contact:', error);
-      alert('שגיאה בעדכון איש קשר');
-    }
-  };
-
-  const handleDeleteContact = async (id: string) => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק איש קשר זה?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('contacts')
-        .delete()
-        .eq('id', id)
-        .eq('tenant_id', TENANT_ID);
-
-      if (error) throw error;
-      fetchContacts();
-    } catch (error) {
-      console.error('Error deleting contact:', error);
-      alert('שגיאה במחיקת איש קשר');
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedContacts.size === 0) {
-      alert('לא נבחרו אנשי קשר');
+  const performImport = async () => {
+    if (preview.length === 0) {
+      setErrors(['אין נתונים לייבוא']);
       return;
     }
 
-    if (!confirm(`האם אתה בטוח שברצונך למחוק ${selectedContacts.size} אנשי קשר?`)) return;
+    setImporting(true);
+    setProgress(0);
+    const importErrors: string[] = [];
+    let successCount = 0;
+    let skipCount = 0;
+    let updateCount = 0;
 
     try {
-      const { error } = await supabase
+      const { data: existingContacts } = await supabase
         .from('contacts')
-        .delete()
-        .in('id', Array.from(selectedContacts))
-        .eq('tenant_id', TENANT_ID);
+        .select('phone')
+        .eq('tenant_id', tenantId);
 
-      if (error) throw error;
-      
-      setSelectedContacts(new Set());
-      fetchContacts();
-    } catch (error) {
-      console.error('Error bulk deleting contacts:', error);
-      alert('שגיאה במחיקת אנשי קשר');
-    }
-  };
+      const existingPhones = new Set(existingContacts?.map(c => c.phone) || []);
 
-  const toggleSelectAll = () => {
-    if (selectedContacts.size === contacts.length) {
-      setSelectedContacts(new Set());
-    } else {
-      setSelectedContacts(new Set(contacts.map(c => c.id)));
-    }
-  };
+      const batchSize = 10;
+      for (let i = 0; i < preview.length; i += batchSize) {
+        const batch = preview.slice(i, i + batchSize);
+        const newContacts = batch.filter(contact => !existingPhones.has(contact.phone));
+        const existingToUpdate = batch.filter(contact => existingPhones.has(contact.phone));
 
-  const toggleSelectContact = (id: string) => {
-    const newSelected = new Set(selectedContacts);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedContacts(newSelected);
-  };
+        if (newContacts.length > 0) {
+          const { error } = await supabase
+            .from('contacts')
+            .insert(newContacts);
 
-  const addSampleContacts = async () => {
-    const sampleContacts = [
-      { name: 'ישראל ישראלי', phone: '+972501234567', email: 'israel@example.com', tags: ['לקוחות', 'VIP'] },
-      { name: 'רחל כהן', phone: '+972502223333', email: 'rachel@example.com', tags: ['חדשים'] },
-      { name: 'דוד לוי', phone: '+972523334444', email: '', tags: ['לקוחות'] },
-      { name: 'שרה אברהם', phone: '+972504445555', email: 'sara@example.com', tags: ['ספקים'] },
-      { name: 'משה רוזנברג', phone: '+972505556666', email: 'moshe@example.com', tags: ['עובדים', 'VIP'] },
-      { name: 'ארז', phone: '+972505782800', email: '', tags: ['ארז'] }
-    ];
+          if (error) {
+            console.error('Batch insert error:', error);
+            importErrors.push(`שגיאה בהוספת אנשי קשר: ${error.message}`);
+            skipCount += newContacts.length;
+          } else {
+            successCount += newContacts.length;
+          }
+        }
 
-    try {
-      for (const contact of sampleContacts) {
-        await supabase
-          .from('contacts')
-          .insert([{
-            ...contact,
-            tenant_id: TENANT_ID,
-            status: 'active',
-            opt_out: false
-          }]);
+        for (const contact of existingToUpdate) {
+          const { error } = await supabase
+            .from('contacts')
+            .update({
+              name: contact.name,
+              email: contact.email,
+              tags: contact.tags,
+              status: contact.status
+            })
+            .eq('phone', contact.phone)
+            .eq('tenant_id', tenantId);
+
+          if (error) {
+            console.error(`Error updating contact ${contact.name}:`, error);
+            skipCount++;
+          } else {
+            updateCount++;
+          }
+        }
+
+        setProgress(Math.round(((i + batch.length) / preview.length) * 100));
       }
-      alert('נוספו 6 אנשי קשר לדוגמה!');
-      fetchContacts();
-    } catch (error) {
-      console.error('Error adding sample contacts:', error);
-      alert('שגיאה בהוספת אנשי קשר לדוגמה');
+
+      const summary = `
+ייבוא הושלם!
+✅ נוספו: ${successCount} אנשי קשר חדשים
+🔄 עודכנו: ${updateCount} אנשי קשר קיימים
+⏭️ דילוגים: ${skipCount}
+${importErrors.length > 0 ? `\n⚠️ שגיאות:\n${importErrors.slice(0, 5).join('\n')}` : ''}
+      `.trim();
+      
+      alert(summary);
+      onImportComplete();
+      
+      setShowPreview(false);
+      setPreview([]);
+      setErrors([]);
+      
+    } catch (error: any) {
+      console.error('Import error:', error);
+      setErrors(['שגיאה כללית בייבוא: ' + error.message]);
+    } finally {
+      setImporting(false);
+      setProgress(0);
     }
   };
-
-  if (loading) {
-    return <div className="p-8">טוען...</div>;
-  }
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">ניהול אנשי קשר</h1>
-        <div className="flex gap-2">
-          {contacts.length === 1 && (
-            <button
-              onClick={addSampleContacts}
-              className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-            >
-              🔄 שחזר אנשי קשר לדוגמה
-            </button>
-          )}
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-          >
-            {showAddForm ? 'ביטול' : '+ הוסף איש קשר'}
-          </button>
-          {selectedContacts.size > 0 && (
-            <button
-              onClick={handleBulkDelete}
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-            >
-              מחק {selectedContacts.size} נבחרים
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-gray-100 p-4 rounded mb-4">
-        <p>סה״כ אנשי קשר: <strong>{contacts.length}</strong></p>
-        {contacts.length === 1 && (
-          <div className="mt-2 p-2 bg-yellow-100 text-yellow-800 rounded">
-            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ על ״שחזר אנשי קשר לדוגמה״ להוספת נתוני דוגמה.
+    <div className="p-4 border rounded-lg bg-white">
+      <h3 className="text-lg font-semibold mb-4">ייבוא אנשי קשר מקובץ</h3>
+      
+      {!showPreview ? (
+        <div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              בחר קובץ CSV או Excel
+            </label>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleFileUpload}
+              className="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100"
+            />
           </div>
-        )}
-      </div>
-
-      {showImport && (
-        <div className="mb-6">
-          <ImportContacts 
-            onImportComplete={() => {
-              fetchContacts();
-              setShowImport(false);
-            }}
-            tenantId={TENANT_ID}
-          />
+          
+          <div className="bg-gray-50 p-3 rounded text-sm text-gray-600">
+            <p className="font-medium mb-2">📋 הקובץ צריך להכיל את העמודות הבאות:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li><strong>שם / Name</strong> - שם איש הקשר</li>
+              <li><strong>טלפון / Phone</strong> - מספר טלפון (חובה)</li>
+              <li><strong>אימייל / Email</strong> - כתובת אימייל (אופציונלי)</li>
+              <li><strong>תגיות / Tags</strong> - תגיות מופרדות בפסיק (אופציונלי)</li>
+            </ul>
+            <p className="mt-2 text-xs">💡 טיפ: המערכת מנרמלת מספרי טלפון אוטומטית לפורמט בינלאומי</p>
+          </div>
         </div>
-      )}
+      ) : (
+        <div>
+          <div className="mb-4">
+            <h4 className="font-medium mb-2">
+              תצוגה מקדימה - {preview.length} אנשי קשר לייבוא
+            </h4>
+            <div className="overflow-x-auto max-h-60 border rounded">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-right">#</th>
+                    <th className="px-3 py-2 text-right">שם</th>
+                    <th className="px-3 py-2 text-right">טלפון</th>
+                    <th className="px-3 py-2 text-right">אימייל</th>
+                    <th className="px-3 py-2 text-right">תגיות</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {preview.slice(0, 10).map((contact, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-gray-500">{index + 1}</td>
+                      <td className="px-3 py-2">{contact.name}</td>
+                      <td className="px-3 py-2" dir="ltr">{contact.phone}</td>
+                      <td className="px-3 py-2">{contact.email || '-'}</td>
+                      <td className="px-3 py-2">{contact.tags?.join(', ') || '-'}</td>
+                    </tr>
+                  ))}
+                  {preview.length > 10 && (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-2 text-center text-gray-500">
+                        ... ועוד {preview.length - 10} אנשי קשר
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      {showAddForm && (
-        <div className="bg-white p-4 rounded-lg shadow mb-6">
-          <h3 className="text-lg font-semibold mb-4">הוסף איש קשר חדש</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="שם"
-              value={newContact.name}
-              onChange={(e) => setNewContact({...newContact, name: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <input
-              type="text"
-              placeholder="טלפון (לדוגמה: +972501234567)"
-              value={newContact.phone}
-              onChange={(e) => setNewContact({...newContact, phone: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <input
-              type="email"
-              placeholder="אימייל (אופציונלי)"
-              value={newContact.email}
-              onChange={(e) => setNewContact({...newContact, email: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <select
-              multiple
-              value={newContact.tags}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions, option => option.value);
-                setNewContact({...newContact, tags: selected});
+          <div className="flex gap-2">
+            <button
+              onClick={performImport}
+              disabled={importing}
+              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importing ? `מייבא... ${progress}%` : `🚀 ייבא ${preview.length} אנשי קשר`}
+            </button>
+            <button
+              onClick={() => {
+                setShowPreview(false);
+                setPreview([]);
+                setErrors([]);
               }}
-              className="border p-2 rounded"
-              title="החזק Ctrl/Cmd לבחירה מרובה"
-            >
-              <option value="לקוחות">לקוחות</option>
-              <option value="ספקים">ספקים</option>
-              <option value="עובדים">עובדים</option>
-              <option value="VIP">VIP</option>
-              <option value="חדשים">חדשים</option>
-              {tags.map(tag => (
-                <option key={tag.id} value={tag.name}>{tag.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={handleAddContact}
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-            >
-              שמור
-            </button>
-            <button
-              onClick={() => setShowAddForm(false)}
-              className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+              disabled={importing}
+              className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400 disabled:opacity-50"
             >
               ביטול
             </button>
@@ -332,126 +277,31 @@ export default function ContactsPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-3 text-right">
-                <input
-                  type="checkbox"
-                  checked={selectedContacts.size === contacts.length && contacts.length > 0}
-                  onChange={toggleSelectAll}
-                />
-              </th>
-              <th className="p-3 text-right">שם</th>
-              <th className="p-3 text-right">טלפון</th>
-              <th className="p-3 text-right">אימייל</th>
-              <th className="p-3 text-right">תגיות</th>
-              <th className="p-3 text-right">סטטוס</th>
-              <th className="p-3 text-right">פעולות</th>
-            </tr>
-          </thead>
-          <tbody>
-            {contacts.map(contact => (
-              <tr key={contact.id} className="border-t hover:bg-gray-50">
-                <td className="p-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedContacts.has(contact.id)}
-                    onChange={() => toggleSelectContact(contact.id)}
-                  />
-                </td>
-                <td className="p-3">
-                  {editingContact?.id === contact.id ? (
-                    <input
-                      type="text"
-                      value={editingContact.name}
-                      onChange={(e) => setEditingContact({...editingContact, name: e.target.value})}
-                      className="border p-1 rounded"
-                    />
-                  ) : (
-                    contact.name
-                  )}
-                </td>
-                <td className="p-3" dir="ltr">
-                  {editingContact?.id === contact.id ? (
-                    <input
-                      type="text"
-                      value={editingContact.phone}
-                      onChange={(e) => setEditingContact({...editingContact, phone: e.target.value})}
-                      className="border p-1 rounded"
-                      dir="ltr"
-                    />
-                  ) : (
-                    contact.phone
-                  )}
-                </td>
-                <td className="p-3">
-                  {editingContact?.id === contact.id ? (
-                    <input
-                      type="email"
-                      value={editingContact.email || ''}
-                      onChange={(e) => setEditingContact({...editingContact, email: e.target.value})}
-                      className="border p-1 rounded"
-                    />
-                  ) : (
-                    contact.email || '-'
-                  )}
-                </td>
-                <td className="p-3">
-                  {contact.tags?.join(', ') || '-'}
-                </td>
-                <td className="p-3">
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    contact.opt_out ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                  }`}>
-                    {contact.opt_out ? 'הסרה' : 'פעיל'}
-                  </span>
-                </td>
-                <td className="p-3">
-                  {editingContact?.id === contact.id ? (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={handleUpdateContact}
-                        className="text-green-600 hover:underline"
-                      >
-                        שמור
-                      </button>
-                      <button
-                        onClick={() => setEditingContact(null)}
-                        className="text-gray-600 hover:underline"
-                      >
-                        ביטול
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => setEditingContact(contact)}
-                        className="text-blue-600 hover:underline"
-                      >
-                        ערוך
-                      </button>
-                      <button
-                        onClick={() => handleDeleteContact(contact.id)}
-                        className="text-red-600 hover:underline"
-                      >
-                        מחק
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
+      {errors.length > 0 && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
+          <p className="font-medium mb-1">❌ שגיאות:</p>
+          <ul className="list-disc list-inside text-sm">
+            {errors.map((error, index) => (
+              <li key={index}>{error}</li>
             ))}
-          </tbody>
-        </table>
-        
-        {contacts.length === 0 && (
-          <div className="p-8 text-center text-gray-500">
-            אין אנשי קשר. לחץ על הוסף איש קשר להתחיל.
+          </ul>
+        </div>
+      )}
+
+      {importing && (
+        <div className="mt-4">
+          <div className="flex justify-between text-sm text-gray-600 mb-1">
+            <span>מעבד נתונים...</span>
+            <span>{progress}%</span>
           </div>
-        )}
-      </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
