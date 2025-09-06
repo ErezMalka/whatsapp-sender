@@ -181,6 +181,31 @@ ${importErrors.length > 0 ? `\n⚠️ שגיאות:\n${importErrors.slice(0, 5).
     }
   };
 
+  const downloadSampleCSV = () => {
+    const sampleData = `שם,טלפון,אימייל,תגיות
+ישראל ישראלי,0501234567,israel@example.com,"לקוחות,VIP"
+רחל כהן,0502223333,rachel@example.com,חדשים
+דוד לוי,0523334444,,לקוחות
+שרה אברהם,0504445555,sara@example.com,ספקים
+משה רוזנברג,0505556666,moshe@example.com,"עובדים,VIP"
+יעל גולן,0507778888,yael@example.com,
+אברהם כהן,0508889999,,חדשים
+מרים לוי,0501112222,miriam@example.com,"לקוחות,חדשים"
+יוסף ברק,0502223344,,ספקים
+דנה שמש,0503334455,dana@example.com,VIP`;
+
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + sampleData], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'contacts_sample.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="p-4 border rounded-lg bg-white">
       <h3 className="text-lg font-semibold mb-4">ייבוא אנשי קשר מקובץ</h3>
@@ -202,6 +227,20 @@ ${importErrors.length > 0 ? `\n⚠️ שגיאות:\n${importErrors.slice(0, 5).
                 file:bg-blue-50 file:text-blue-700
                 hover:file:bg-blue-100"
             />
+          </div>
+          
+          <div className="mb-4">
+            <button
+              onClick={downloadSampleCSV}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                  d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                />
+              </svg>
+              הורד קובץ CSV לדוגמה
+            </button>
           </div>
           
           <div className="bg-gray-50 p-3 rounded text-sm text-gray-600">
