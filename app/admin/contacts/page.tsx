@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import ImportContacts from './ImportContacts';
 
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -11,7 +10,6 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState([]);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showImport, setShowImport] = useState(false);
   const [selectedContacts, setSelectedContacts] = useState(new Set());
   
   // Form states
@@ -179,12 +177,6 @@ export default function ContactsPage() {
         <h1 className="text-2xl font-bold">ניהול אנשי קשר</h1>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowImport(!showImport)}
-            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-          >
-            {showImport ? 'סגור ייבוא' : '📤 ייבוא מקובץ'}
-          </button>
-          <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
           >
@@ -203,19 +195,10 @@ export default function ContactsPage() {
 
       <div className="bg-gray-100 p-4 rounded mb-4">
         <p>סה"כ אנשי קשר: <strong>{contacts.length}</strong></p>
+        <p className="text-sm text-gray-600 mt-2">
+          💡 טיפ: לייבוא מרובה של אנשי קשר, השתמש בהוספה ידנית או המתן לעדכון הבא
+        </p>
       </div>
-
-      {showImport && (
-        <div className="mb-6">
-          <ImportContacts 
-            onImportComplete={() => {
-              fetchContacts();
-              setShowImport(false);
-            }}
-            tenantId={TENANT_ID}
-          />
-        </div>
-      )}
 
       {showAddForm && (
         <div className="bg-white p-4 rounded-lg shadow mb-6">
