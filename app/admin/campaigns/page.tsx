@@ -172,7 +172,10 @@ export default function CampaignsPage() {
         .from('campaign_recipients')
         .insert(campaignRecipients);
 
-      if (recipientsError) throw recipientsError;
+      if (recipientsError) {
+        console.error('Recipients error details:', recipientsError);
+        throw recipientsError;
+      }
 
       alert(`קמפיין נוצר בהצלחה! ${recipients.length} נמענים נוספו.`);
       
