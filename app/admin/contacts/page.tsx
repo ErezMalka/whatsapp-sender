@@ -256,4 +256,185 @@ export default function ContactsPage() {
         <p>סה"כ אנשי קשר: <strong>{contacts.length}</strong></p>
         {contacts.length === 1 && (
           <div className="mt-2 p-2 bg-yellow-100 text-yellow-800 rounded">
-            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ ע
+            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ על "שחזר אנשי קשר לדוגמה" להוספת נתוני דוגמה.
+          </div>
+        )}
+      </div>
+
+      {showAddForm && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h3 className="text-lg font-semibold mb-4">הוסף איש קשר חדש</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="שם"
+              value={newContact.name}
+              onChange={(e) => setNewContact({...newContact, name: e.target.value})}
+              className="border p-2 rounded"
+            />
+            <input
+              type="text"
+              placeholder="טלפון (לדוגמה: +972501234567)"
+              value={newContact.phone}
+              onChange={(e) => setNewContact({...newContact, phone: e.target.value})}
+              className="border p-2 rounded"
+            />
+            <input
+              type="email"
+              placeholder="אימייל (אופציונלי)"
+              value={newContact.email}
+              onChange={(e) => setNewContact({...newContact, email: e.target.value})}
+              className="border p-2 rounded"
+            />
+            <select
+              multiple
+              value={newContact.tags}
+              onChange={(e) => {
+                const selected = Array.from(e.target.selectedOptions, option => option.value);
+                setNewContact({...newContact, tags: selected});
+              }}
+              className="border p-2 rounded"
+              title="החזק Ctrl/Cmd לבחירה מרובה"
+            >
+              <option value="לקוחות">לקוחות</option>
+              <option value="ספקים">ספקים</option>
+              <option value="עובדים">עובדים</option>
+              <option value="VIP">VIP</option>
+              <option value="חדשים">חדשים</option>
+              {tags.map(tag => (
+                <option key={tag.id} value={tag.name}>{tag.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={handleAddContact}
+              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              שמור
+            </button>
+            <button
+              onClick={() => setShowAddForm(false)}
+              className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-3 text-right">
+                <input
+                  type="checkbox"
+                  checked={selectedContacts.size === contacts.length && contacts.length > 0}
+                  onChange={toggleSelectAll}
+                />
+              </th>
+              <th className="p-3 text-right">שם</th>
+              <th className="p-3 text-right">טלפון</th>
+              <th className="p-3 text-right">אימייל</th>
+              <th className="p-3 text-right">תגיות</th>
+              <th className="p-3 text-right">סטטוס</th>
+              <th className="p-3 text-right">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contacts.map(contact => (
+              <tr key={contact.id} className="border-t hover:bg-gray-50">
+                <td className="p-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedContacts.has(contact.id)}
+                    onChange={() => toggleSelectContact(contact.id)}
+                  />
+                </td>
+                <td className="p-3">
+                  {editingContact?.id === contact.id ? (
+                    <input
+                      type="text"
+                      value={editingContact.name}
+                      onChange={(e) => setEditingContact({...editingContact, name: e.target.value})}
+                      className="border p-1 rounded"
+                    />
+                  ) : (
+                    contact.name
+                  )}
+                </td>
+                <td className="p-3" dir="ltr">
+                  {editingContact?.id === contact.id ? (
+                    <input
+                      type="text"
+                      value={editingContact.phone}
+                      onChange={(e) => setEditingContact({...editingContact, phone: e.target.value})}
+                      className="border p-1 rounded"
+                      dir="ltr"
+                    />
+                  ) : (
+                    contact.phone
+                  )}
+                </td>
+                <td className="p-3">
+                  {editingContact?.id === contact.id ? (
+                    <input
+                      type="email"
+                      value={editingContact.email || ''}
+                      onChange={(e) => setEditingContact({...editingContact, email: e.target.value})}
+                      className="border p-1 rounded"
+                    />
+                  ) : (
+                    contact.email || '-'
+                  )}
+                </td>
+                <td className="p-3">
+                  {contact.tags?.join(', ') || '-'}
+                </td>
+                <td className="p-3">
+                  <span className={`px-2 py-1 rounded text-xs ${
+                    contact.opt_out ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                  }`}>
+                    {contact.opt_out ? 'הסרה' : 'פעיל'}
+                  </span>
+                </td>
+                <td className="p-3">
+                  {editingContact?.id === contact.id ? (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={handleUpdateContact}
+                        className="text-green-600 hover:underline"
+                      >
+                        שמור
+                      </button>
+                      <button
+                        onClick={() => setEditingContact(null)}
+                        className="text-gray-600 hover:underline"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setEditingContact(contact)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        ערוך
+                      </button>
+                      <button
+                        onClick={() => handleDeleteContact(contact.id)}
+                        className="text-red-600 hover:underline"
+                      >
+                        מחק
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        
+        {contacts.length === 0 && (
