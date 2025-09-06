@@ -1,161 +1,84 @@
+// app/api/campaigns/process/route.ts
+// קראו ל-API זה כל דקה באמצעות Vercel Cron או שירות חיצוני
+
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
-// פונקציה לשליחת הודעת WhatsApp
-async function sendWhatsAppMessage(phone: string, message: string) {
-  try {
-    // כאן תוסיף את הלוגיקה לשליחת הודעת WhatsApp
-    // לדוגמה: קריאה ל-WhatsApp Business API
-    
-    const whatsappApiUrl = process.env.WHATSAPP_API_URL;
-    const whatsappApiKey = process.env.WHATSAPP_API_KEY;
-    
-    if (!whatsappApiUrl || !whatsappApiKey) {
-      throw new Error('WhatsApp API configuration is missing');
-    }
-    
-    // דוגמה לקריאת API (התאם לפי ה-API שלך)
-    const response = await fetch(`${whatsappApiUrl}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${whatsappApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        to: phone,
-        message: message,
-        type: 'text'
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`WhatsApp API error: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return { success: true, data };
-    
-  } catch (error) {
-    console.error('Error sending WhatsApp message:', error);
-    // תיקון: טיפול נכון בשגיאה מטיפוס unknown
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return { success: false, error: errorMessage };
-  }
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const { campaignId } = await request.json();
-    
-    if (!campaignId) {
-      return NextResponse.json(
-        { error: 'Campaign ID is required' },
-        { status: 400 }
-      );
+    // בדוק אם יש אישור (למנוע קריאות לא מורשות)
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    // שליפת פרטי הקמפיין
-    const { data: campaign, error: campaignError } = await supabase
+
+    // מצא קמפיינים פעילים
+    const { data: activeCampaigns, error: campaignsError } = await supabase
       .from('campaigns')
       .select('*')
-      .eq('id', campaignId)
-      .single();
-    
-    if (campaignError || !campaign) {
-      return NextResponse.json(
-        { error: 'Campaign not found' },
-        { status: 404 }
-      );
+      .eq('is_sending', true);
+
+    if (campaignsError) {
+      console.error('Error fetching campaigns:', campaignsError);
+      return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 });
     }
-    
-    // שליפת אנשי הקשר לפי הטאגים או הרשימה שנבחרה
-    let contacts = [];
-    
-    if (campaign.selected_contacts && campaign.selected_contacts.length > 0) {
-      // אם יש אנשי קשר ספציפיים שנבחרו
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .in('id', campaign.selected_contacts);
-      
-      if (!error && data) {
-        contacts = data;
-      }
-    } else if (campaign.selected_tags && campaign.selected_tags.length > 0) {
-      // אם נבחרו טאגים, מצא את כל אנשי הקשר עם הטאגים האלה
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*');
-      
-      if (!error && data) {
-        contacts = data.filter(contact => 
-          contact.tags?.some((tag: string) => 
-            campaign.selected_tags.includes(tag)
-          )
-        );
-      }
+
+    if (!activeCampaigns || activeCampaigns.length === 0) {
+      return NextResponse.json({ message: 'No active campaigns' });
     }
-    
-    if (contacts.length === 0) {
-      return NextResponse.json(
-        { error: 'No contacts found for this campaign' },
-        { status: 400 }
-      );
-    }
-    
-    // שליחת הודעות
+
     const results = [];
-    let successCount = 0;
-    let failureCount = 0;
-    
-    for (const contact of contacts) {
-      const result = await sendWhatsAppMessage(contact.phone, campaign.message);
-      
-      if (result.success) {
-        successCount++;
-      } else {
-        failureCount++;
+
+    // עבור כל קמפיין פעיל
+    for (const campaign of activeCampaigns) {
+      // בדוק אם הגיע הזמן לשלוח את ההודעה הבאה
+      const { data: nextMessage } = await supabase
+        .from('message_queue')
+        .select('*')
+        .eq('campaign_id', campaign.id)
+        .eq('status', 'pending')
+        .lte('scheduled_time', new Date().toISOString())
+        .order('scheduled_time', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (nextMessage) {
+        // שלח את ההודעה
+        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/campaigns/send`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            campaignId: campaign.id,
+            action: 'process'
+          })
+        });
+
+        const result = await response.json();
+        results.push({
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          result
+        });
       }
-      
-      results.push({
-        contactId: contact.id,
-        contactName: contact.name,
-        phone: contact.phone,
-        ...result
-      });
-      
-      // השהייה קטנה בין הודעות למניעת חסימה
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    
-    // עדכון סטטוס הקמפיין
-    await supabase
-      .from('campaigns')
-      .update({ 
-        status: 'completed',
-        processed_at: new Date().toISOString(),
-        success_count: successCount,
-        failure_count: failureCount
-      })
-      .eq('id', campaignId);
-    
+
     return NextResponse.json({
       success: true,
-      message: `Campaign processed successfully`,
-      summary: {
-        total: contacts.length,
-        successful: successCount,
-        failed: failureCount
-      },
+      processed: results.length,
       results
     });
-    
-  } catch (error) {
-    console.error('Error processing campaign:', error);
-    // תיקון: טיפול נכון בשגיאה מטיפוס unknown
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+
+  } catch (error: any) {
+    console.error('Process Error:', error);
     return NextResponse.json(
-      { error: `Failed to process campaign: ${errorMessage}` },
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     );
   }
