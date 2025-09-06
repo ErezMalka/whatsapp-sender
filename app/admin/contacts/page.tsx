@@ -1,4 +1,3 @@
-// app/admin/contacts/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -33,7 +32,6 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   
-  // Form states
   const [newContact, setNewContact] = useState({
     name: '',
     phone: '',
@@ -188,7 +186,6 @@ export default function ContactsPage() {
     setSelectedContacts(newSelected);
   };
 
-  // פונקציה להוספת מספר אנשי קשר לדוגמה
   const addSampleContacts = async () => {
     const sampleContacts = [
       { name: 'ישראל ישראלי', phone: '+972501234567', email: 'israel@example.com', tags: ['לקוחות', 'VIP'] },
@@ -253,10 +250,10 @@ export default function ContactsPage() {
       </div>
 
       <div className="bg-gray-100 p-4 rounded mb-4">
-        <p>סה"כ אנשי קשר: <strong>{contacts.length}</strong></p>
+        <p>סה״כ אנשי קשר: <strong>{contacts.length}</strong></p>
         {contacts.length === 1 && (
           <div className="mt-2 p-2 bg-yellow-100 text-yellow-800 rounded">
-            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ על "שחזר אנשי קשר לדוגמה" להוספת נתוני דוגמה.
+            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ על ״שחזר אנשי קשר לדוגמה״ להוספת נתוני דוגמה.
           </div>
         )}
       </div>
@@ -438,3 +435,11 @@ export default function ContactsPage() {
         </table>
         
         {contacts.length === 0 && (
+          <div className="p-8 text-center text-gray-500">
+            אין אנשי קשר. לחץ על הוסף איש קשר להתחיל.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
