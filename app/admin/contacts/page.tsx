@@ -258,6 +258,18 @@ export default function ContactsPage() {
         )}
       </div>
 
+      {showImport && (
+        <div className="mb-6">
+          <ImportContacts 
+            onImportComplete={() => {
+              fetchContacts();
+              setShowImport(false);
+            }}
+            tenantId={TENANT_ID}
+          />
+        </div>
+      )}
+
       {showAddForm && (
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <h3 className="text-lg font-semibold mb-4">הוסף איש קשר חדש</h3>
