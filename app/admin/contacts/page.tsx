@@ -421,13 +421,21 @@ export default function ContactsPage() {
                 }}
                 className="border p-2 rounded w-full"
                 title="החזק Ctrl/Cmd לבחירה מרובה"
+                size={5}
               >
                 <option value="לקוחות">לקוחות</option>
                 <option value="ספקים">ספקים</option>
                 <option value="עובדים">עובדים</option>
                 <option value="VIP">VIP</option>
                 <option value="חדשים">חדשים</option>
+                {tags.filter(tag => !['לקוחות', 'ספקים', 'עובדים', 'VIP', 'חדשים'].includes(tag.name))
+                  .map(tag => (
+                    <option key={tag.id} value={tag.name} style={{color: tag.color}}>
+                      {tag.name}
+                    </option>
+                ))}
               </select>
+              <p className="text-xs text-gray-500 mt-1">החזק Ctrl/Cmd לבחירה מרובה</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">🎂 יום הולדת</label>
