@@ -110,7 +110,7 @@ export default function CampaignsPage() {
       const response = await fetch(`/api/campaigns/send?campaignId=${campaignId}`);
       const data = await response.json();
       
-      setCampaignStats(prev => ({
+      setCampaignStats((prev: any) => ({
         ...prev,
         [campaignId]: data
       }));
