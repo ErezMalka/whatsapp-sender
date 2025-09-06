@@ -181,10 +181,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // קבל את הנמענים
+      // קבל את הנמענים עם JOIN לטבלת contacts
       const { data: recipients, error: recipientsError } = await supabase
         .from('campaign_recipients')
-        .select('contact_id, contacts(*)')
+        .select(`
+          contact_id,
+          contacts!inner (
+            id,
+            name,
+            phone,
+            email
+          )
+        `)
         .eq('campaign_id', campaignId);
 
       if (recipientsError || !recipients || recipients.length === 0) {
@@ -194,15 +202,15 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // צור תור הודעות
-      const messageQueue = recipients.map((recipient, index) => ({
+      // צור תור הודעות - תיקון: השתמש ב-scheduled_time ובגישה נכונה ל-contacts
+      const messageQueue = recipients.map((recipient: any, index: number) => ({
         tenant_id: campaign.tenant_id,
         campaign_id: campaignId,
         contact_id: recipient.contact_id,
         phone: recipient.contacts.phone,
         message: campaign.message_content,
         status: 'pending',
-        send_at: new Date(Date.now() + (index * campaign.send_rate * 1000)).toISOString()
+        scheduled_time: new Date(Date.now() + (index * campaign.send_rate * 1000)).toISOString()
       }));
 
       // הכנס לתור
