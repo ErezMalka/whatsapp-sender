@@ -21,6 +21,11 @@ interface Contact {
   tags?: string[];
   status: string;
   opt_out: boolean;
+  birth_date?: string;
+  anniversary_date?: string;
+  join_date?: string;
+  last_order_date?: string;
+  loyalty_points?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -43,11 +48,17 @@ export default function ContactsPage() {
     name: '',
     phone: '',
     email: '',
-    tags: [] as string[]
+    tags: [] as string[],
+    birth_date: '',
+    anniversary_date: '',
+    join_date: new Date().toISOString().split('T')[0],
+    last_order_date: '',
+    loyalty_points: 0
   });
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [showExtendedFields, setShowExtendedFields] = useState(false);
 
   useEffect(() => {
     fetchContacts();
@@ -96,8 +107,8 @@ export default function ContactsPage() {
       return;
     }
 
-    // הכנת הנתונים לייצוא
-    let csvContent = 'שם,טלפון,אימייל,תגיות,סטטוס\n';
+    // הכנת הנתונים לייצוא עם השדות החדשים
+    let csvContent = 'שם,טלפון,אימייל,תגיות,סטטוס,יום הולדת,יום נישואין,תאריך הצטרפות,הזמנה אחרונה,נקודות\n';
     
     contactsToExport.forEach(contact => {
       const name = contact.name || '';
@@ -105,17 +116,17 @@ export default function ContactsPage() {
       const email = contact.email || '';
       const tags = contact.tags?.join(';') || '';
       const status = contact.opt_out ? 'הוסר' : 'פעיל';
+      const birthDate = contact.birth_date || '';
+      const anniversaryDate = contact.anniversary_date || '';
+      const joinDate = contact.join_date || '';
+      const lastOrderDate = contact.last_order_date || '';
+      const loyaltyPoints = contact.loyalty_points || 0;
       
-      // Escape quotes and wrap in quotes if contains comma
-      const escapedName = name.includes(',') ? `"${name.replace(/"/g, '""')}"` : name;
-      const escapedEmail = email.includes(',') ? `"${email.replace(/"/g, '""')}"` : email;
-      const escapedTags = tags.includes(',') ? `"${tags.replace(/"/g, '""')}"` : tags;
-      
-      csvContent += `${escapedName},${phone},${escapedEmail},${escapedTags},${status}\n`;
+      csvContent += `${name},${phone},${email},${tags},${status},${birthDate},${anniversaryDate},${joinDate},${lastOrderDate},${loyaltyPoints}\n`;
     });
 
     // יצירת הקובץ והורדה
-    const BOM = '\uFEFF'; // לתמיכה בעברית
+    const BOM = '\uFEFF';
     const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -129,7 +140,6 @@ export default function ContactsPage() {
     link.click();
     document.body.removeChild(link);
 
-    // הודעת אישור
     const message = onlySelected 
       ? `יוצאו ${contactsToExport.length} אנשי קשר נבחרים`
       : `יוצאו ${contactsToExport.length} אנשי קשר`;
@@ -138,18 +148,36 @@ export default function ContactsPage() {
 
   const handleAddContact = async () => {
     try {
+      const contactData: any = {
+        ...newContact,
+        tenant_id: TENANT_ID,
+        status: 'active',
+        opt_out: false,
+        loyalty_points: newContact.loyalty_points || 0
+      };
+
+      // נקה תאריכים ריקים
+      if (!contactData.birth_date) delete contactData.birth_date;
+      if (!contactData.anniversary_date) delete contactData.anniversary_date;
+      if (!contactData.last_order_date) delete contactData.last_order_date;
+
       const { error } = await supabase
         .from('contacts')
-        .insert([{
-          ...newContact,
-          tenant_id: TENANT_ID,
-          status: 'active',
-          opt_out: false
-        }]);
+        .insert([contactData]);
 
       if (error) throw error;
       
-      setNewContact({ name: '', phone: '', email: '', tags: [] });
+      setNewContact({ 
+        name: '', 
+        phone: '', 
+        email: '', 
+        tags: [],
+        birth_date: '',
+        anniversary_date: '',
+        join_date: new Date().toISOString().split('T')[0],
+        last_order_date: '',
+        loyalty_points: 0
+      });
       setShowAddForm(false);
       fetchContacts();
     } catch (error) {
@@ -162,14 +190,21 @@ export default function ContactsPage() {
     if (!editingContact) return;
 
     try {
+      const updateData: any = {
+        name: editingContact.name,
+        phone: editingContact.phone,
+        email: editingContact.email,
+        tags: editingContact.tags,
+        birth_date: editingContact.birth_date || null,
+        anniversary_date: editingContact.anniversary_date || null,
+        join_date: editingContact.join_date || null,
+        last_order_date: editingContact.last_order_date || null,
+        loyalty_points: editingContact.loyalty_points || 0
+      };
+
       const { error } = await supabase
         .from('contacts')
-        .update({
-          name: editingContact.name,
-          phone: editingContact.phone,
-          email: editingContact.email,
-          tags: editingContact.tags
-        })
+        .update(updateData)
         .eq('id', editingContact.id)
         .eq('tenant_id', TENANT_ID);
 
@@ -244,52 +279,35 @@ export default function ContactsPage() {
     setSelectedContacts(newSelected);
   };
 
-  const addSampleContacts = async () => {
-    const sampleContacts = [
-      { name: 'ישראל ישראלי', phone: '+972501234567', email: 'israel@example.com', tags: ['לקוחות', 'VIP'] },
-      { name: 'רחל כהן', phone: '+972502223333', email: 'rachel@example.com', tags: ['חדשים'] },
-      { name: 'דוד לוי', phone: '+972523334444', email: '', tags: ['לקוחות'] },
-      { name: 'שרה אברהם', phone: '+972504445555', email: 'sara@example.com', tags: ['ספקים'] },
-      { name: 'משה רוזנברג', phone: '+972505556666', email: 'moshe@example.com', tags: ['עובדים', 'VIP'] },
-      { name: 'ארז', phone: '+972505782800', email: '', tags: ['ארז'] }
-    ];
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('he-IL');
+  };
 
-    try {
-      for (const contact of sampleContacts) {
-        await supabase
-          .from('contacts')
-          .insert([{
-            ...contact,
-            tenant_id: TENANT_ID,
-            status: 'active',
-            opt_out: false
-          }]);
-      }
-      alert('נוספו 6 אנשי קשר לדוגמה!');
-      fetchContacts();
-    } catch (error) {
-      console.error('Error adding sample contacts:', error);
-      alert('שגיאה בהוספת אנשי קשר לדוגמה');
-    }
+  const getUpcomingBirthdays = () => {
+    const today = new Date();
+    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    return contacts.filter(contact => {
+      if (!contact.birth_date) return false;
+      const birthDate = new Date(contact.birth_date);
+      birthDate.setFullYear(today.getFullYear());
+      return birthDate >= today && birthDate <= nextWeek;
+    });
   };
 
   if (loading) {
     return <div className="p-8">טוען...</div>;
   }
 
+  const upcomingBirthdays = getUpcomingBirthdays();
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">ניהול אנשי קשר</h1>
         <div className="flex gap-2 flex-wrap">
-          {contacts.length === 1 && (
-            <button
-              onClick={addSampleContacts}
-              className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-            >
-              🔄 שחזר אנשי קשר לדוגמה
-            </button>
-          )}
           {contacts.length > 0 && (
             <button
               onClick={() => exportContactsToCSV(false)}
@@ -318,6 +336,12 @@ export default function ContactsPage() {
           >
             {showAddForm ? 'ביטול' : '+ הוסף איש קשר'}
           </button>
+          <button
+            onClick={() => setShowExtendedFields(!showExtendedFields)}
+            className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+          >
+            {showExtendedFields ? '📉 הסתר שדות' : '📊 הצג שדות מורחבים'}
+          </button>
           {selectedContacts.size > 0 && (
             <button
               onClick={handleBulkDelete}
@@ -330,12 +354,14 @@ export default function ContactsPage() {
       </div>
 
       <div className="bg-gray-100 p-4 rounded mb-4">
-        <p>סה״כ אנשי קשר: <strong>{contacts.length}</strong></p>
-        {contacts.length === 1 && (
-          <div className="mt-2 p-2 bg-yellow-100 text-yellow-800 rounded">
-            ⚠️ נראה שאנשי הקשר הקודמים נמחקו. לחץ על ״שחזר אנשי קשר לדוגמה״ להוספת נתוני דוגמה.
-          </div>
-        )}
+        <div className="flex justify-between items-center">
+          <p>סה״כ אנשי קשר: <strong>{contacts.length}</strong></p>
+          {upcomingBirthdays.length > 0 && (
+            <div className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded">
+              🎂 {upcomingBirthdays.length} ימי הולדת השבוע!
+            </div>
+          )}
+        </div>
       </div>
 
       {showImport && (
@@ -354,53 +380,108 @@ export default function ContactsPage() {
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <h3 className="text-lg font-semibold mb-4">הוסף איש קשר חדש</h3>
           <div className="grid grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="שם"
-              value={newContact.name}
-              onChange={(e) => setNewContact({...newContact, name: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <input
-              type="text"
-              placeholder="טלפון (לדוגמה: +972501234567)"
-              value={newContact.phone}
-              onChange={(e) => setNewContact({...newContact, phone: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <input
-              type="email"
-              placeholder="אימייל (אופציונלי)"
-              value={newContact.email}
-              onChange={(e) => setNewContact({...newContact, email: e.target.value})}
-              className="border p-2 rounded"
-            />
-            <select
-              multiple
-              value={newContact.tags}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions, option => option.value);
-                setNewContact({...newContact, tags: selected});
-              }}
-              className="border p-2 rounded"
-              title="החזק Ctrl/Cmd לבחירה מרובה"
-            >
-              <option value="לקוחות">לקוחות</option>
-              <option value="ספקים">ספקים</option>
-              <option value="עובדים">עובדים</option>
-              <option value="VIP">VIP</option>
-              <option value="חדשים">חדשים</option>
-              {tags.map(tag => (
-                <option key={tag.id} value={tag.name}>{tag.name}</option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם *</label>
+              <input
+                type="text"
+                placeholder="שם מלא"
+                value={newContact.name}
+                onChange={(e) => setNewContact({...newContact, name: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">טלפון *</label>
+              <input
+                type="text"
+                placeholder="+972501234567"
+                value={newContact.phone}
+                onChange={(e) => setNewContact({...newContact, phone: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+              <input
+                type="email"
+                placeholder="example@email.com"
+                value={newContact.email}
+                onChange={(e) => setNewContact({...newContact, email: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תגיות</label>
+              <select
+                multiple
+                value={newContact.tags}
+                onChange={(e) => {
+                  const selected = Array.from(e.target.selectedOptions, option => option.value);
+                  setNewContact({...newContact, tags: selected});
+                }}
+                className="border p-2 rounded w-full"
+                title="החזק Ctrl/Cmd לבחירה מרובה"
+              >
+                <option value="לקוחות">לקוחות</option>
+                <option value="ספקים">ספקים</option>
+                <option value="עובדים">עובדים</option>
+                <option value="VIP">VIP</option>
+                <option value="חדשים">חדשים</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">🎂 יום הולדת</label>
+              <input
+                type="date"
+                value={newContact.birth_date}
+                onChange={(e) => setNewContact({...newContact, birth_date: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">💍 יום נישואין</label>
+              <input
+                type="date"
+                value={newContact.anniversary_date}
+                onChange={(e) => setNewContact({...newContact, anniversary_date: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">📅 תאריך הצטרפות</label>
+              <input
+                type="date"
+                value={newContact.join_date}
+                onChange={(e) => setNewContact({...newContact, join_date: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">🛒 הזמנה אחרונה</label>
+              <input
+                type="date"
+                value={newContact.last_order_date}
+                onChange={(e) => setNewContact({...newContact, last_order_date: e.target.value})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">⭐ נקודות נאמנות</label>
+              <input
+                type="number"
+                placeholder="0"
+                value={newContact.loyalty_points}
+                onChange={(e) => setNewContact({...newContact, loyalty_points: parseInt(e.target.value) || 0})}
+                className="border p-2 rounded w-full"
+              />
+            </div>
           </div>
           <div className="mt-4 flex gap-2">
             <button
               onClick={handleAddContact}
               className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
             >
-              שמור
+              שמור איש קשר
             </button>
             <button
               onClick={() => setShowAddForm(false)}
@@ -412,11 +493,11 @@ export default function ContactsPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="p-3 text-right">
+              <th className="p-3 text-right sticky left-0 bg-gray-50">
                 <input
                   type="checkbox"
                   checked={selectedContacts.size === contacts.length && contacts.length > 0}
@@ -427,6 +508,15 @@ export default function ContactsPage() {
               <th className="p-3 text-right">טלפון</th>
               <th className="p-3 text-right">אימייל</th>
               <th className="p-3 text-right">תגיות</th>
+              {showExtendedFields && (
+                <>
+                  <th className="p-3 text-right">🎂 יום הולדת</th>
+                  <th className="p-3 text-right">💍 יום נישואין</th>
+                  <th className="p-3 text-right">📅 הצטרפות</th>
+                  <th className="p-3 text-right">🛒 הזמנה אחרונה</th>
+                  <th className="p-3 text-right">⭐ נקודות</th>
+                </>
+              )}
               <th className="p-3 text-right">סטטוס</th>
               <th className="p-3 text-right">פעולות</th>
             </tr>
@@ -434,7 +524,7 @@ export default function ContactsPage() {
           <tbody>
             {contacts.map(contact => (
               <tr key={contact.id} className="border-t hover:bg-gray-50">
-                <td className="p-3">
+                <td className="p-3 sticky left-0 bg-white">
                   <input
                     type="checkbox"
                     checked={selectedContacts.has(contact.id)}
@@ -450,7 +540,13 @@ export default function ContactsPage() {
                       className="border p-1 rounded"
                     />
                   ) : (
-                    contact.name
+                    <div>
+                      {contact.name}
+                      {contact.birth_date && new Date(contact.birth_date).getMonth() === new Date().getMonth() && 
+                       new Date(contact.birth_date).getDate() === new Date().getDate() && (
+                        <span className="ml-2">🎂</span>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td className="p-3" dir="ltr">
@@ -481,6 +577,59 @@ export default function ContactsPage() {
                 <td className="p-3">
                   {contact.tags?.join(', ') || '-'}
                 </td>
+                {showExtendedFields && (
+                  <>
+                    <td className="p-3">
+                      {editingContact?.id === contact.id ? (
+                        <input
+                          type="date"
+                          value={editingContact.birth_date || ''}
+                          onChange={(e) => setEditingContact({...editingContact, birth_date: e.target.value})}
+                          className="border p-1 rounded"
+                        />
+                      ) : (
+                        formatDate(contact.birth_date)
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {editingContact?.id === contact.id ? (
+                        <input
+                          type="date"
+                          value={editingContact.anniversary_date || ''}
+                          onChange={(e) => setEditingContact({...editingContact, anniversary_date: e.target.value})}
+                          className="border p-1 rounded"
+                        />
+                      ) : (
+                        formatDate(contact.anniversary_date)
+                      )}
+                    </td>
+                    <td className="p-3">{formatDate(contact.join_date)}</td>
+                    <td className="p-3">
+                      {editingContact?.id === contact.id ? (
+                        <input
+                          type="date"
+                          value={editingContact.last_order_date || ''}
+                          onChange={(e) => setEditingContact({...editingContact, last_order_date: e.target.value})}
+                          className="border p-1 rounded"
+                        />
+                      ) : (
+                        formatDate(contact.last_order_date)
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {editingContact?.id === contact.id ? (
+                        <input
+                          type="number"
+                          value={editingContact.loyalty_points || 0}
+                          onChange={(e) => setEditingContact({...editingContact, loyalty_points: parseInt(e.target.value) || 0})}
+                          className="border p-1 rounded w-20"
+                        />
+                      ) : (
+                        contact.loyalty_points || 0
+                      )}
+                    </td>
+                  </>
+                )}
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded text-xs ${
                     contact.opt_out ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
