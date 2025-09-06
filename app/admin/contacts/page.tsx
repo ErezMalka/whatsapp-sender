@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import dynamic from 'next/dynamic';
+
+// Dynamic import למניעת בעיות SSR
+const ImportContacts = dynamic(() => import('./ImportContacts'), {
+  ssr: false,
+  loading: () => <p>טוען רכיב ייבוא...</p>
+});
 
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -39,6 +46,7 @@ export default function ContactsPage() {
     tags: [] as string[]
   });
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
 
   useEffect(() => {
@@ -232,6 +240,12 @@ export default function ContactsPage() {
               🔄 שחזר אנשי קשר לדוגמה
             </button>
           )}
+          <button
+            onClick={() => setShowImport(!showImport)}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+          >
+            {showImport ? 'סגור ייבוא' : '📤 ייבוא מקובץ'}
+          </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
