@@ -86,6 +86,56 @@ export default function ContactsPage() {
     }
   };
 
+  const exportContactsToCSV = (onlySelected = false) => {
+    const contactsToExport = onlySelected 
+      ? contacts.filter(c => selectedContacts.has(c.id))
+      : contacts;
+
+    if (contactsToExport.length === 0) {
+      alert('אין אנשי קשר לייצוא');
+      return;
+    }
+
+    // הכנת הנתונים לייצוא
+    let csvContent = 'שם,טלפון,אימייל,תגיות,סטטוס\n';
+    
+    contactsToExport.forEach(contact => {
+      const name = contact.name || '';
+      const phone = contact.phone || '';
+      const email = contact.email || '';
+      const tags = contact.tags?.join(';') || '';
+      const status = contact.opt_out ? 'הוסר' : 'פעיל';
+      
+      // Escape quotes and wrap in quotes if contains comma
+      const escapedName = name.includes(',') ? `"${name.replace(/"/g, '""')}"` : name;
+      const escapedEmail = email.includes(',') ? `"${email.replace(/"/g, '""')}"` : email;
+      const escapedTags = tags.includes(',') ? `"${tags.replace(/"/g, '""')}"` : tags;
+      
+      csvContent += `${escapedName},${phone},${escapedEmail},${escapedTags},${status}\n`;
+    });
+
+    // יצירת הקובץ והורדה
+    const BOM = '\uFEFF'; // לתמיכה בעברית
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    const date = new Date().toISOString().split('T')[0];
+    const prefix = onlySelected ? 'selected_contacts' : 'all_contacts';
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${prefix}_export_${date}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // הודעת אישור
+    const message = onlySelected 
+      ? `יוצאו ${contactsToExport.length} אנשי קשר נבחרים`
+      : `יוצאו ${contactsToExport.length} אנשי קשר`;
+    alert(message);
+  };
+
   const handleAddContact = async () => {
     try {
       const { error } = await supabase
@@ -231,13 +281,29 @@ export default function ContactsPage() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">ניהול אנשי קשר</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {contacts.length === 1 && (
             <button
               onClick={addSampleContacts}
               className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
             >
               🔄 שחזר אנשי קשר לדוגמה
+            </button>
+          )}
+          {contacts.length > 0 && (
+            <button
+              onClick={() => exportContactsToCSV(false)}
+              className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+            >
+              💾 ייצא הכל לCSV ({contacts.length})
+            </button>
+          )}
+          {selectedContacts.size > 0 && (
+            <button
+              onClick={() => exportContactsToCSV(true)}
+              className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600"
+            >
+              📋 ייצא {selectedContacts.size} נבחרים
             </button>
           )}
           <button
