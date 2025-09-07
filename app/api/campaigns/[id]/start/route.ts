@@ -1,281 +1,183 @@
-// app/api/campaigns/[id]/start/route.ts
+// app/api/campaigns/[id]/status/route.ts
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
-// יצירת Supabase client עם service key
-// חשוב: וודא שהוספת SUPABASE_SERVICE_KEY ב-Vercel Environment Variables
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pxukjsbvwcaqsgfxsteh.supabase.co',
-  process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4dWtqc2J2d2NhcXNnZnhzdGVoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTA3OTQ2NSwiZXhwIjoyMDcwNjU1NDY1fQ.JNlUO_qQ5CtjnAZBHXk9EvSXd3Xh6Q2jUQMlUgDQnik'
+  process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4dWtqc2J2d2NhcXNnZnhzdGVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwNzk0NjUsImV4cCI6MjA3MDY1NTQ2NX0.p77CyAgyV5dip7_fi389I7_KWHHlkxQcdW4L0XynLho'
 )
 
-export async function POST(
+export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const campaignId = params.id
-    console.log('Starting campaign:', campaignId)
 
-    // בדוק שה-API keys קיימים
-    if (!process.env.GREEN_API_INSTANCE_ID || !process.env.GREEN_API_TOKEN) {
-      console.error('Missing Green API credentials')
-      return NextResponse.json(
-        { error: 'Missing API credentials. Please configure GREEN_API_INSTANCE_ID and GREEN_API_TOKEN in environment variables.' },
-        { status: 500 }
-      )
-    }
-
-    // טען פרטי קמפיין
+    // קבל פרטי קמפיין
     const { data: campaign, error: campaignError } = await supabase
       .from('campaigns')
       .select('*')
       .eq('id', campaignId)
       .single()
 
-    if (campaignError || !campaign) {
-      console.error('Campaign not found:', campaignError)
-      return NextResponse.json(
-        { error: 'Campaign not found' },
-        { status: 404 }
-      )
+    if (campaignError) {
+      throw campaignError
     }
 
-    // עדכן סטטוס לפעיל
-    const { error: updateError } = await supabase
-      .from('campaigns')
-      .update({ 
-        status: 'active',
-        started_at: new Date().toISOString()
-      })
-      .eq('id', campaignId)
-
-    if (updateError) {
-      console.error('Error updating campaign:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to update campaign status' },
-        { status: 500 }
-      )
-    }
-
-    // טען הודעות לשליחה
+    // קבל סטטיסטיקות הודעות
     const { data: messages, error: messagesError } = await supabase
       .from('campaign_messages')
       .select('*')
       .eq('campaign_id', campaignId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
-      .limit(20) // שלח 20 הודעות בכל פעם
 
     if (messagesError) {
-      console.error('Error loading messages:', messagesError)
-      return NextResponse.json(
-        { error: 'Failed to load messages' },
-        { status: 500 }
-      )
+      throw messagesError
     }
 
-    console.log(`Found ${messages?.length || 0} messages to send`)
-
-    if (!messages || messages.length === 0) {
-      return NextResponse.json({ 
-        success: true, 
-        message: 'אין הודעות ממתינות לשליחה',
-        messagesProcessed: 0 
-      })
+    // חשב סטטיסטיקות
+    const stats = {
+      total: messages?.length || 0,
+      pending: messages?.filter(m => m.status === 'pending').length || 0,
+      sent: messages?.filter(m => m.status === 'sent').length || 0,
+      failed: messages?.filter(m => m.status === 'failed').length || 0
     }
 
-    // שלח הודעות
-    let successCount = 0
-    let failCount = 0
-    const results = []
+    // קבל דוגמאות של הודעות
+    const sampleMessages = messages?.slice(0, 10).map(msg => ({
+      id: msg.id,
+      phone: msg.phone,
+      status: msg.status,
+      error: msg.error,
+      sent_at: msg.sent_at,
+      content: msg.content?.substring(0, 50) + '...'
+    }))
 
-    for (const message of messages) {
-      try {
-        console.log(`Sending message to ${message.phone}`)
-        
-        // פורמט מספר טלפון
-        let phoneNumber = message.phone.replace(/\D/g, '')
-        
-        // הסר 0 מההתחלה אם יש
-        if (phoneNumber.startsWith('0')) {
-          phoneNumber = phoneNumber.substring(1)
-        }
-        
-        // הוסף קידומת ישראל אם אין
-        if (!phoneNumber.startsWith('972')) {
-          phoneNumber = '972' + phoneNumber
-        }
-
-        console.log(`Formatted phone: ${phoneNumber}`)
-
-        // שלח הודעה דרך Green API
-        const response = await fetch(
-          `https://api.green-api.com/waInstance${process.env.GREEN_API_INSTANCE_ID}/sendMessage/${process.env.GREEN_API_TOKEN}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chatId: `${phoneNumber}@c.us`,
-              message: message.content
-            })
-          }
-        )
-
-        const result = await response.json()
-        console.log('API Response:', result)
-        
-        if (response.ok && result.idMessage) {
-          console.log('Message sent successfully:', result.idMessage)
-          
-          // עדכן סטטוס ההודעה
-          await supabase
-            .from('campaign_messages')
-            .update({ 
-              status: 'sent',
-              sent_at: new Date().toISOString(),
-              whatsapp_message_id: result.idMessage
-            })
-            .eq('id', message.id)
-          
-          successCount++
-          results.push({ phone: message.phone, status: 'success', messageId: result.idMessage })
-        } else {
-          console.error('Failed to send message:', result)
-          
-          const errorMessage = result.error || result.message || 'Unknown error'
-          
-          await supabase
-            .from('campaign_messages')
-            .update({ 
-              status: 'failed',
-              error: errorMessage
-            })
-            .eq('id', message.id)
-          
-          failCount++
-          results.push({ phone: message.phone, status: 'failed', error: errorMessage })
-        }
-
-        // המתן בין הודעות (קצב מהקמפיין או 30 שניות כברירת מחדל)
-        const delay = (campaign.messages_per_minute && campaign.messages_per_minute > 0) 
-          ? (60000 / campaign.messages_per_minute) 
-          : 30000
-        
-        console.log(`Waiting ${delay}ms before next message`)
-        
-        // המתן רק אם זו לא ההודעה האחרונה
-        if (messages.indexOf(message) < messages.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        
-      } catch (error) {
-        console.error('Error sending message:', error)
-        
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        
-        await supabase
-          .from('campaign_messages')
-          .update({ 
-            status: 'failed',
-            error: errorMessage
-          })
-          .eq('id', message.id)
-        
-        failCount++
-        results.push({ phone: message.phone, status: 'failed', error: errorMessage })
-      }
-    }
-
-    // עדכן סטטיסטיקות הקמפיין
-    const { data: updatedCampaign } = await supabase
-      .from('campaigns')
-      .select('sent_count, failed_count')
-      .eq('id', campaignId)
-      .single()
-
-    const currentSentCount = updatedCampaign?.sent_count || 0
-    const currentFailedCount = updatedCampaign?.failed_count || 0
-
-    await supabase
-      .from('campaigns')
-      .update({
-        sent_count: currentSentCount + successCount,
-        failed_count: currentFailedCount + failCount
-      })
-      .eq('id', campaignId)
-
-    // בדוק אם יש עוד הודעות ממתינות
-    const { count: pendingCount } = await supabase
-      .from('campaign_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaignId)
-      .eq('status', 'pending')
-
-    // אם אין עוד הודעות, סמן את הקמפיין כהושלם
-    if (pendingCount === 0) {
-      await supabase
-        .from('campaigns')
-        .update({ 
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', campaignId)
-    }
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: `נשלחו ${successCount} הודעות בהצלחה, ${failCount} נכשלו`,
-      messagesProcessed: messages.length,
-      successCount,
-      failCount,
-      pendingCount,
-      results
+      campaign,
+      stats,
+      sampleMessages,
+      recommendations: getRecommendations(stats)
     })
 
   } catch (error) {
-    console.error('Campaign start error:', error)
+    console.error('Error fetching campaign status:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
+      { error: String(error) },
       { status: 500 }
     )
   }
 }
 
-// עצירת קמפיין
-export async function DELETE(
+// איפוס הודעות שנכשלו
+export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const campaignId = params.id
+    const { action } = await request.json()
 
-    const { error } = await supabase
-      .from('campaigns')
-      .update({ 
-        status: 'paused',
-        paused_at: new Date().toISOString()
+    if (action === 'reset-failed') {
+      // אפס הודעות שנכשלו
+      const { error } = await supabase
+        .from('campaign_messages')
+        .update({
+          status: 'pending',
+          error: null,
+          sent_at: null,
+          whatsapp_message_id: null
+        })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'failed')
+
+      if (error) throw error
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'הודעות שנכשלו אופסו בהצלחה' 
       })
-      .eq('id', campaignId)
 
-    if (error) {
-      console.error('Error pausing campaign:', error)
-      return NextResponse.json(
-        { error: 'Failed to pause campaign' },
-        { status: 500 }
-      )
+    } else if (action === 'reset-all') {
+      // אפס את כל ההודעות
+      const { error: messagesError } = await supabase
+        .from('campaign_messages')
+        .update({
+          status: 'pending',
+          error: null,
+          sent_at: null,
+          whatsapp_message_id: null
+        })
+        .eq('campaign_id', campaignId)
+
+      if (messagesError) throw messagesError
+
+      // אפס את הקמפיין
+      const { error: campaignError } = await supabase
+        .from('campaigns')
+        .update({
+          status: 'draft',
+          sent_count: 0,
+          failed_count: 0,
+          started_at: null,
+          completed_at: null,
+          paused_at: null
+        })
+        .eq('id', campaignId)
+
+      if (campaignError) throw campaignError
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'כל ההודעות אופסו בהצלחה' 
+      })
     }
 
-    return NextResponse.json({ 
-      success: true,
-      message: 'הקמפיין הושהה בהצלחה'
-    })
+    return NextResponse.json(
+      { error: 'Invalid action' },
+      { status: 400 }
+    )
 
   } catch (error) {
-    console.error('Campaign pause error:', error)
+    console.error('Error resetting messages:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
+      { error: String(error) },
       { status: 500 }
     )
   }
+}
+
+function getRecommendations(stats: any) {
+  const recommendations = []
+  
+  if (stats.pending === 0 && stats.total > 0) {
+    recommendations.push({
+      type: 'error',
+      message: 'אין הודעות ממתינות! צריך לאפס את הסטטוס כדי לשלוח שוב.'
+    })
+  }
+  
+  if (stats.failed > 0) {
+    recommendations.push({
+      type: 'warning',
+      message: `יש ${stats.failed} הודעות שנכשלו. אפשר לאפס אותן ולנסות שוב.`
+    })
+  }
+  
+  if (stats.pending > 0) {
+    recommendations.push({
+      type: 'success',
+      message: `יש ${stats.pending} הודעות ממתינות לשליחה.`
+    })
+  }
+  
+  if (stats.sent === stats.total && stats.total > 0) {
+    recommendations.push({
+      type: 'info',
+      message: 'כל ההודעות נשלחו בהצלחה!'
+    })
+  }
+  
+  return recommendations
 }
