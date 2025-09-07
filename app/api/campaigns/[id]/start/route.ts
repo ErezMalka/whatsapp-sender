@@ -2,9 +2,11 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+// יצירת Supabase client עם service key
+// חשוב: וודא שהוספת SUPABASE_SERVICE_KEY ב-Vercel Environment Variables
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pxukjsbvwcaqsgfxsteh.supabase.co',
+  process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4dWtqc2J2d2NhcXNnZnhzdGVoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTA3OTQ2NSwiZXhwIjoyMDcwNjU1NDY1fQ.JNlUO_qQ5CtjnAZBHXk9EvSXd3Xh6Q2jUQMlUgDQnik'
 )
 
 export async function POST(
@@ -78,7 +80,7 @@ export async function POST(
     if (!messages || messages.length === 0) {
       return NextResponse.json({ 
         success: true, 
-        message: 'No pending messages to send',
+        message: 'אין הודעות ממתינות לשליחה',
         messagesProcessed: 0 
       })
     }
@@ -86,6 +88,7 @@ export async function POST(
     // שלח הודעות
     let successCount = 0
     let failCount = 0
+    const results = []
 
     for (const message of messages) {
       try {
@@ -93,9 +96,18 @@ export async function POST(
         
         // פורמט מספר טלפון
         let phoneNumber = message.phone.replace(/\D/g, '')
-        if (!phoneNumber.startsWith('972')) {
-          phoneNumber = '972' + phoneNumber.replace(/^0/, '')
+        
+        // הסר 0 מההתחלה אם יש
+        if (phoneNumber.startsWith('0')) {
+          phoneNumber = phoneNumber.substring(1)
         }
+        
+        // הוסף קידומת ישראל אם אין
+        if (!phoneNumber.startsWith('972')) {
+          phoneNumber = '972' + phoneNumber
+        }
+
+        console.log(`Formatted phone: ${phoneNumber}`)
 
         // שלח הודעה דרך Green API
         const response = await fetch(
@@ -111,6 +123,7 @@ export async function POST(
         )
 
         const result = await response.json()
+        console.log('API Response:', result)
         
         if (response.ok && result.idMessage) {
           console.log('Message sent successfully:', result.idMessage)
@@ -126,18 +139,22 @@ export async function POST(
             .eq('id', message.id)
           
           successCount++
+          results.push({ phone: message.phone, status: 'success', messageId: result.idMessage })
         } else {
           console.error('Failed to send message:', result)
+          
+          const errorMessage = result.error || result.message || 'Unknown error'
           
           await supabase
             .from('campaign_messages')
             .update({ 
               status: 'failed',
-              error: JSON.stringify(result)
+              error: errorMessage
             })
             .eq('id', message.id)
           
           failCount++
+          results.push({ phone: message.phone, status: 'failed', error: errorMessage })
         }
 
         // המתן בין הודעות (קצב מהקמפיין או 30 שניות כברירת מחדל)
@@ -146,44 +163,80 @@ export async function POST(
           : 30000
         
         console.log(`Waiting ${delay}ms before next message`)
-        await new Promise(resolve => setTimeout(resolve, delay))
+        
+        // המתן רק אם זו לא ההודעה האחרונה
+        if (messages.indexOf(message) < messages.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
         
       } catch (error) {
         console.error('Error sending message:', error)
+        
+        const errorMessage = error instanceof Error ? error.message : String(error)
         
         await supabase
           .from('campaign_messages')
           .update({ 
             status: 'failed',
-            error: String(error)
+            error: errorMessage
           })
           .eq('id', message.id)
         
         failCount++
+        results.push({ phone: message.phone, status: 'failed', error: errorMessage })
       }
     }
 
     // עדכן סטטיסטיקות הקמפיין
+    const { data: updatedCampaign } = await supabase
+      .from('campaigns')
+      .select('sent_count, failed_count')
+      .eq('id', campaignId)
+      .single()
+
+    const currentSentCount = updatedCampaign?.sent_count || 0
+    const currentFailedCount = updatedCampaign?.failed_count || 0
+
     await supabase
       .from('campaigns')
       .update({
-        sent_count: successCount,
-        failed_count: failCount
+        sent_count: currentSentCount + successCount,
+        failed_count: currentFailedCount + failCount
       })
       .eq('id', campaignId)
 
+    // בדוק אם יש עוד הודעות ממתינות
+    const { count: pendingCount } = await supabase
+      .from('campaign_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .eq('status', 'pending')
+
+    // אם אין עוד הודעות, סמן את הקמפיין כהושלם
+    if (pendingCount === 0) {
+      await supabase
+        .from('campaigns')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', campaignId)
+    }
+
     return NextResponse.json({ 
       success: true,
-      message: `Campaign started. Sent: ${successCount}, Failed: ${failCount}`,
+      message: `נשלחו ${successCount} הודעות בהצלחה, ${failCount} נכשלו`,
       messagesProcessed: messages.length,
       successCount,
-      failCount
+      failCount,
+      pendingCount,
+      results
     })
 
   } catch (error) {
     console.error('Campaign start error:', error)
     return NextResponse.json(
-      { error: String(error) },
+      { error: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     )
   }
@@ -213,12 +266,15 @@ export async function DELETE(
       )
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ 
+      success: true,
+      message: 'הקמפיין הושהה בהצלחה'
+    })
 
   } catch (error) {
     console.error('Campaign pause error:', error)
     return NextResponse.json(
-      { error: String(error) },
+      { error: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     )
   }
