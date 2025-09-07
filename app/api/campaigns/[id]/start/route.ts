@@ -65,7 +65,7 @@ export async function POST(
       .eq('campaign_id', campaignId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
-      .limit(5) // התחל עם 5 הודעות לבדיקה
+      .limit(20) // שלח 20 הודעות בכל פעם
 
     if (messagesError) {
       console.error('Error loading messages:', messagesError)
