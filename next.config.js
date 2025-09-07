@@ -1,4 +1,5 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {}
-
-module.exports = nextConfig
+{
+  "status": "API is working",
+  "configured": true/false,
+  ...
+}
