@@ -141,6 +141,8 @@ export default function CampaignsPage() {
         return;
       }
 
+      console.log('Creating campaign with recipients:', recipients.length);
+
       // צור קמפיין חדש
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
@@ -158,7 +160,12 @@ export default function CampaignsPage() {
         .select()
         .single();
 
-      if (campaignError) throw campaignError;
+      if (campaignError) {
+        console.error('Campaign creation error:', campaignError);
+        throw campaignError;
+      }
+
+      console.log('Campaign created:', campaign.id);
 
       // הוסף נמענים לקמפיין
       const campaignRecipients = recipients.map(contact => ({
@@ -168,13 +175,18 @@ export default function CampaignsPage() {
         status: 'pending'
       }));
 
+      console.log('Adding recipients:', campaignRecipients);
+
       const { error: recipientsError } = await supabase
         .from('campaign_recipients')
         .insert(campaignRecipients);
 
       if (recipientsError) {
         console.error('Recipients error details:', recipientsError);
-        throw recipientsError;
+        // נסה למחוק את הקמפיין שנוצר
+        await supabase.from('campaigns').delete().eq('id', campaign.id);
+        alert(`שגיאה בהוספת נמענים: ${recipientsError.message || 'שגיאה לא ידועה'}`);
+        return;
       }
 
       alert(`קמפיין נוצר בהצלחה! ${recipients.length} נמענים נוספו.`);
@@ -192,9 +204,9 @@ export default function CampaignsPage() {
       setSelectedContacts(new Set());
       fetchCampaigns();
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating campaign:', error);
-      alert('שגיאה ביצירת קמפיין');
+      alert(`שגיאה ביצירת קמפיין: ${error.message || 'שגיאה לא ידועה'}`);
     }
   };
 
