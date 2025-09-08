@@ -79,6 +79,15 @@ export default function RootLayout({
                   <span>קמפיינים</span>
                 </Link>
                 
+                {/* קישור חדש לקמפיינים החדש */}
+                <Link 
+                  href="/campaigns-new" 
+                  className="hover:bg-green-700 px-3 py-2 rounded-md transition duration-200 flex items-center gap-2 bg-green-800 border border-green-500"
+                >
+                  <span>🚀</span>
+                  <span>קמפיינים חדש</span>
+                </Link>
+                
                 <Link 
                   href="/admin/reports" 
                   className="hover:bg-green-700 px-3 py-2 rounded-md transition duration-200 flex items-center gap-2"
@@ -144,6 +153,13 @@ export default function RootLayout({
                 >
                   📢 קמפיינים
                 </Link>
+                {/* קישור חדש לקמפיינים החדש במובייל */}
+                <Link 
+                  href="/campaigns-new" 
+                  className="hover:bg-green-700 block px-3 py-2 rounded-md text-base font-medium bg-green-800 border border-green-500"
+                >
+                  🚀 קמפיינים חדש
+                </Link>
                 <Link 
                   href="/admin/reports" 
                   className="hover:bg-green-700 block px-3 py-2 rounded-md text-base font-medium"
@@ -174,6 +190,12 @@ export default function RootLayout({
               
               {/* Quick Actions */}
               <div className="flex items-center space-x-reverse space-x-4">
+                <Link 
+                  href="/campaigns-new" 
+                  className="text-purple-600 hover:text-purple-700 font-medium"
+                >
+                  🚀 קמפיין חדש
+                </Link>
                 <Link 
                   href="/admin/send-message" 
                   className="text-green-600 hover:text-green-700 font-medium"
@@ -225,6 +247,11 @@ export default function RootLayout({
                   <li>
                     <Link href="/admin/campaigns" className="text-gray-400 hover:text-white">
                       קמפיינים
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/campaigns-new" className="text-gray-400 hover:text-white">
+                      🚀 קמפיינים חדש
                     </Link>
                   </li>
                 </ul>
