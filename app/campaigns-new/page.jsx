@@ -1,28 +1,15 @@
-// app/campaigns-new.jsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Play, 
-  Pause, 
-  Send, 
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  RefreshCw
-} from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase - השתמש בערכים שלך
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ===============================
-// 1. CONSTANTS
+// CONSTANTS
 // ===============================
 const CAMPAIGN_STATUS = {
   DRAFT: 'draft',
@@ -37,23 +24,19 @@ const MESSAGE_STATUS = {
   PENDING: 'pending',
   SENDING: 'sending',
   SENT: 'sent',
-  DELIVERED: 'delivered',
-  READ: 'read',
   FAILED: 'failed'
 };
 
 // ===============================
-// 2. MAIN COMPONENT
+// MAIN COMPONENT
 // ===============================
-export default function CampaignsNew() {
-  const supabase = createClientComponentClient();
-  
+export default function CampaignsNewPage() {
   // State Management
   const [campaigns, setCampaigns] = useState([]);
-  const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [logs, setLogs] = useState([]);
+  const [activeTab, setActiveTab] = useState('create');
   
   // Form State
   const [formData, setFormData] = useState({
@@ -78,7 +61,7 @@ export default function CampaignsNew() {
   });
 
   // ===============================
-  // 3. INITIALIZATION
+  // INITIALIZATION
   // ===============================
   useEffect(() => {
     loadCampaigns();
@@ -87,7 +70,6 @@ export default function CampaignsNew() {
 
   const loadGreenApiCredentials = async () => {
     try {
-      // נסה לטעון מ-localStorage
       const instanceId = localStorage.getItem('greenApiInstanceId');
       const token = localStorage.getItem('greenApiToken');
       
@@ -95,24 +77,7 @@ export default function CampaignsNew() {
         setGreenApiCredentials({ instanceId, token });
         addLog('success', 'חיבור ל-WhatsApp פעיל ✓');
       } else {
-        // נסה לטעון מטבלת settings בסופהבייס
-        const { data, error } = await supabase
-          .from('settings')
-          .select('*')
-          .single();
-        
-        if (data?.green_api_instance_id && data?.green_api_token) {
-          setGreenApiCredentials({
-            instanceId: data.green_api_instance_id,
-            token: data.green_api_token
-          });
-          // שמור ב-localStorage לפעם הבאה
-          localStorage.setItem('greenApiInstanceId', data.green_api_instance_id);
-          localStorage.setItem('greenApiToken', data.green_api_token);
-          addLog('success', 'חיבור ל-WhatsApp פעיל ✓');
-        } else {
-          addLog('error', 'חסרים פרטי חיבור ל-WhatsApp');
-        }
+        addLog('warning', 'חסרים פרטי חיבור ל-WhatsApp - בדוק בהגדרות');
       }
     } catch (error) {
       addLog('error', `שגיאה בטעינת פרטי חיבור: ${error.message}`);
@@ -138,19 +103,17 @@ export default function CampaignsNew() {
   };
 
   // ===============================
-  // 4. CAMPAIGN CREATION
+  // CAMPAIGN CREATION
   // ===============================
   const createCampaign = async () => {
     try {
       setIsCreating(true);
       addLog('info', 'יוצר קמפיין חדש...');
 
-      // Validate
       if (!formData.name || !formData.message || !formData.recipients) {
         throw new Error('נא למלא את כל השדות הנדרשים');
       }
 
-      // Parse recipients
       const recipientsList = formData.recipients
         .split('\n')
         .map(phone => phone.trim())
@@ -160,7 +123,6 @@ export default function CampaignsNew() {
         throw new Error('לא נמצאו מספרי טלפון תקינים');
       }
 
-      // Create campaign
       const campaignData = {
         name: formData.name,
         message: formData.message,
@@ -172,7 +134,6 @@ export default function CampaignsNew() {
         delay: formData.delay
       };
 
-      // Save to Supabase
       const { data: campaign, error } = await supabase
         .from('campaigns')
         .insert(campaignData)
@@ -182,9 +143,7 @@ export default function CampaignsNew() {
       if (error) throw error;
 
       setCampaigns([campaign, ...campaigns]);
-      setSelectedCampaign(campaign);
       
-      // Reset form
       setFormData({
         name: '',
         message: '',
@@ -193,6 +152,7 @@ export default function CampaignsNew() {
       });
 
       addLog('success', `קמפיין "${campaign.name}" נוצר בהצלחה עם ${recipientsList.length} נמענים`);
+      setActiveTab('campaigns');
       
     } catch (error) {
       addLog('error', error.message);
@@ -202,14 +162,13 @@ export default function CampaignsNew() {
   };
 
   // ===============================
-  // 5. CAMPAIGN EXECUTION
+  // CAMPAIGN EXECUTION
   // ===============================
   const startCampaign = async (campaign) => {
     try {
       setIsSending(true);
       addLog('info', `מתחיל שליחת קמפיין: ${campaign.name}`);
       
-      // Update status to running
       await updateCampaignStatus(campaign.id, CAMPAIGN_STATUS.RUNNING);
       
       const recipients = campaign.recipients;
@@ -217,7 +176,6 @@ export default function CampaignsNew() {
       let sentCount = 0;
       let failedCount = 0;
 
-      // Update stats
       setStats({
         total: totalRecipients,
         sent: 0,
@@ -225,11 +183,9 @@ export default function CampaignsNew() {
         pending: totalRecipients
       });
 
-      // Send messages one by one
       for (let i = 0; i < recipients.length; i++) {
         const recipient = recipients[i];
         
-        // Check if campaign was paused
         const { data: currentCampaign } = await supabase
           .from('campaigns')
           .select('status')
@@ -244,7 +200,6 @@ export default function CampaignsNew() {
         try {
           addLog('info', `שולח הודעה ${i + 1}/${totalRecipients} ל-${recipient}`);
           
-          // Send message
           const result = await sendWhatsAppMessage({
             phone: recipient,
             message: campaign.message,
@@ -273,7 +228,6 @@ export default function CampaignsNew() {
           addLog('error', `✗ נכשל: ${recipient} - ${error.message}`);
         }
 
-        // Update campaign counters in database
         await supabase
           .from('campaigns')
           .update({
@@ -283,14 +237,12 @@ export default function CampaignsNew() {
           })
           .eq('id', campaign.id);
 
-        // Delay between messages
         if (i < recipients.length - 1) {
           addLog('info', `ממתין ${campaign.delay / 1000} שניות...`);
           await new Promise(resolve => setTimeout(resolve, campaign.delay));
         }
       }
 
-      // Update final status
       const finalStatus = failedCount === totalRecipients 
         ? CAMPAIGN_STATUS.FAILED 
         : CAMPAIGN_STATUS.COMPLETED;
@@ -298,8 +250,6 @@ export default function CampaignsNew() {
       await updateCampaignStatus(campaign.id, finalStatus);
       
       addLog('success', `קמפיין הסתיים: ${sentCount} נשלחו, ${failedCount} נכשלו`);
-
-      // Reload campaigns to show updated data
       await loadCampaigns();
 
     } catch (error) {
@@ -311,19 +261,16 @@ export default function CampaignsNew() {
   };
 
   // ===============================
-  // 6. WHATSAPP SENDER
+  // WHATSAPP SENDER
   // ===============================
   const sendWhatsAppMessage = async ({ phone, message, campaignId }) => {
     try {
-      // Format phone number
       const formattedPhone = formatPhoneNumber(phone);
       
-      // Check credentials
       if (!greenApiCredentials.instanceId || !greenApiCredentials.token) {
         throw new Error('חסרים פרטי חיבור ל-Green API');
       }
 
-      // Send via Green API
       const apiUrl = `https://api.green-api.com/waInstance${greenApiCredentials.instanceId}/sendMessage/${greenApiCredentials.token}`;
       
       const payload = {
@@ -346,7 +293,6 @@ export default function CampaignsNew() {
 
       const data = await response.json();
       
-      // Log to database
       await supabase
         .from('message_logs')
         .insert({
@@ -360,7 +306,6 @@ export default function CampaignsNew() {
       return { success: true, messageId: data.idMessage };
       
     } catch (error) {
-      // Log failure
       await supabase
         .from('message_logs')
         .insert({
@@ -376,7 +321,7 @@ export default function CampaignsNew() {
   };
 
   // ===============================
-  // 7. HELPER FUNCTIONS
+  // HELPER FUNCTIONS
   // ===============================
   const formatPhoneNumber = (phone) => {
     let cleaned = phone.replace(/\D/g, '');
@@ -429,291 +374,403 @@ export default function CampaignsNew() {
     setLogs(prev => [logEntry, ...prev].slice(0, 100));
   };
 
-  // ===============================
-  // 8. UI HELPERS
-  // ===============================
   const getStatusBadge = (status) => {
     const statusConfig = {
-      [CAMPAIGN_STATUS.DRAFT]: { label: 'טיוטה', className: 'bg-gray-500' },
-      [CAMPAIGN_STATUS.READY]: { label: 'מוכן', className: 'bg-blue-500' },
-      [CAMPAIGN_STATUS.RUNNING]: { label: 'רץ', className: 'bg-green-500' },
-      [CAMPAIGN_STATUS.PAUSED]: { label: 'מושהה', className: 'bg-yellow-500' },
-      [CAMPAIGN_STATUS.COMPLETED]: { label: 'הושלם', className: 'bg-green-600' },
-      [CAMPAIGN_STATUS.FAILED]: { label: 'נכשל', className: 'bg-red-500' }
+      [CAMPAIGN_STATUS.DRAFT]: { label: 'טיוטה', color: 'gray' },
+      [CAMPAIGN_STATUS.READY]: { label: 'מוכן', color: 'blue' },
+      [CAMPAIGN_STATUS.RUNNING]: { label: 'רץ', color: 'green' },
+      [CAMPAIGN_STATUS.PAUSED]: { label: 'מושהה', color: 'yellow' },
+      [CAMPAIGN_STATUS.COMPLETED]: { label: 'הושלם', color: 'green' },
+      [CAMPAIGN_STATUS.FAILED]: { label: 'נכשל', color: 'red' }
     };
 
-    const config = statusConfig[status] || { label: status, className: 'bg-gray-500' };
+    const config = statusConfig[status] || { label: status, color: 'gray' };
+    const colorClasses = {
+      gray: 'bg-gray-500',
+      blue: 'bg-blue-500',
+      green: 'bg-green-500',
+      yellow: 'bg-yellow-500',
+      red: 'bg-red-500'
+    };
     
     return (
-      <Badge className={`${config.className} text-white`}>
+      <span className={`${colorClasses[config.color]} text-white px-2 py-1 rounded text-xs`}>
         {config.label}
-      </Badge>
+      </span>
     );
   };
 
-  const getLogIcon = (type) => {
-    switch (type) {
-      case 'success': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error': return <XCircle className="w-4 h-4 text-red-500" />;
-      case 'warning': return <AlertCircle className="w-4 h-4 text-yellow-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-blue-500" />;
+  // ===============================
+  // STYLES
+  // ===============================
+  const styles = {
+    container: {
+      maxWidth: '1200px',
+      margin: '0 auto',
+      padding: '20px'
+    },
+    card: {
+      backgroundColor: 'white',
+      borderRadius: '8px',
+      padding: '20px',
+      marginBottom: '20px',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    },
+    tabs: {
+      display: 'flex',
+      gap: '10px',
+      marginBottom: '20px',
+      borderBottom: '2px solid #e5e5e5'
+    },
+    tab: {
+      padding: '10px 20px',
+      background: 'none',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '16px',
+      borderBottom: '2px solid transparent',
+      marginBottom: '-2px'
+    },
+    tabActive: {
+      borderBottomColor: '#10b981',
+      color: '#10b981',
+      fontWeight: 'bold'
+    },
+    formGroup: {
+      marginBottom: '15px'
+    },
+    label: {
+      display: 'block',
+      marginBottom: '5px',
+      fontWeight: 'bold',
+      fontSize: '14px'
+    },
+    input: {
+      width: '100%',
+      padding: '8px 12px',
+      border: '1px solid #ddd',
+      borderRadius: '4px',
+      fontSize: '14px'
+    },
+    textarea: {
+      width: '100%',
+      padding: '8px 12px',
+      border: '1px solid #ddd',
+      borderRadius: '4px',
+      fontSize: '14px',
+      resize: 'vertical'
+    },
+    button: {
+      padding: '10px 20px',
+      borderRadius: '4px',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '5px'
+    },
+    buttonPrimary: {
+      backgroundColor: '#10b981',
+      color: 'white'
+    },
+    buttonSecondary: {
+      backgroundColor: '#f3f4f6',
+      color: '#374151'
+    },
+    buttonDisabled: {
+      opacity: 0.5,
+      cursor: 'not-allowed'
+    },
+    stats: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(4, 1fr)',
+      gap: '15px',
+      marginBottom: '20px'
+    },
+    statCard: {
+      textAlign: 'center',
+      padding: '15px',
+      backgroundColor: '#f9fafb',
+      borderRadius: '8px'
+    },
+    logContainer: {
+      maxHeight: '400px',
+      overflowY: 'auto',
+      fontSize: '13px'
+    },
+    logEntry: {
+      display: 'flex',
+      gap: '10px',
+      padding: '5px 0',
+      borderBottom: '1px solid #f3f4f6'
     }
   };
 
   // ===============================
-  // 9. RENDER
+  // RENDER
   // ===============================
   return (
-    <div className="container mx-auto p-6 max-w-7xl" dir="rtl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">מנהל קמפיינים חדש</h1>
-        <p className="text-gray-600">ניהול ושליחת קמפיינים ב-WhatsApp</p>
+    <div style={styles.container} dir="rtl">
+      <div style={{ marginBottom: '30px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '10px' }}>
+          מנהל קמפיינים חדש
+        </h1>
+        <p style={{ color: '#6b7280' }}>ניהול ושליחת קמפיינים ב-WhatsApp</p>
       </div>
 
-      <Tabs defaultValue="create" className="space-y-4">
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
-          <TabsTrigger value="create">יצירת קמפיין</TabsTrigger>
-          <TabsTrigger value="campaigns">קמפיינים</TabsTrigger>
-          <TabsTrigger value="logs">לוגים</TabsTrigger>
-        </TabsList>
+      {/* Tabs */}
+      <div style={styles.tabs}>
+        <button
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'create' ? styles.tabActive : {})
+          }}
+          onClick={() => setActiveTab('create')}
+        >
+          יצירת קמפיין
+        </button>
+        <button
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'campaigns' ? styles.tabActive : {})
+          }}
+          onClick={() => setActiveTab('campaigns')}
+        >
+          קמפיינים ({campaigns.length})
+        </button>
+        <button
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'logs' ? styles.tabActive : {})
+          }}
+          onClick={() => setActiveTab('logs')}
+        >
+          לוגים
+        </button>
+      </div>
 
-        {/* TAB 1: CREATE CAMPAIGN */}
-        <TabsContent value="create">
-          <Card>
-            <CardHeader>
-              <CardTitle>יצירת קמפיין חדש</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">שם הקמפיין</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="לדוגמה: מבצע חורף 2024"
-                />
+      {/* Tab Content */}
+      {activeTab === 'create' && (
+        <div style={styles.card}>
+          <h2 style={{ fontSize: '20px', marginBottom: '20px' }}>יצירת קמפיין חדש</h2>
+          
+          <div style={styles.formGroup}>
+            <label style={styles.label}>שם הקמפיין</label>
+            <input
+              style={styles.input}
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="לדוגמה: מבצע חורף 2024"
+            />
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>תוכן ההודעה</label>
+            <textarea
+              style={styles.textarea}
+              rows={5}
+              value={formData.message}
+              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+              placeholder="הקלד את תוכן ההודעה כאן..."
+            />
+            <small style={{ color: '#6b7280' }}>{formData.message.length} תווים</small>
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>רשימת נמענים</label>
+            <textarea
+              style={styles.textarea}
+              rows={5}
+              value={formData.recipients}
+              onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
+              placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
+            />
+            <small style={{ color: '#6b7280' }}>
+              {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
+            </small>
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>השהייה בין הודעות (מילישניות)</label>
+            <input
+              style={styles.input}
+              type="number"
+              value={formData.delay}
+              onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) || 2000 })}
+              min="1000"
+              step="500"
+            />
+            <small style={{ color: '#6b7280' }}>
+              {formData.delay / 1000} שניות בין הודעה להודעה
+            </small>
+          </div>
+
+          <button
+            style={{
+              ...styles.button,
+              ...styles.buttonPrimary,
+              ...(isCreating ? styles.buttonDisabled : {}),
+              width: '100%'
+            }}
+            onClick={createCampaign}
+            disabled={isCreating}
+          >
+            {isCreating ? '⏳ יוצר קמפיין...' : '📤 צור קמפיין'}
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'campaigns' && (
+        <div>
+          {stats.total > 0 && (
+            <div style={styles.stats}>
+              <div style={styles.statCard}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total}</div>
+                <div style={{ color: '#6b7280', fontSize: '12px' }}>סה"כ</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{stats.sent}</div>
+                <div style={{ color: '#6b7280', fontSize: '12px' }}>נשלחו</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f59e0b' }}>{stats.pending}</div>
+                <div style={{ color: '#6b7280', fontSize: '12px' }}>ממתינים</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ef4444' }}>{stats.failed}</div>
+                <div style={{ color: '#6b7280', fontSize: '12px' }}>נכשלו</div>
+              </div>
+            </div>
+          )}
+
+          {campaigns.map(campaign => (
+            <div key={campaign.id} style={styles.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.name}</h3>
+                  <p style={{ color: '#6b7280', fontSize: '12px' }}>
+                    נוצר: {new Date(campaign.created_at).toLocaleString('he-IL')}
+                  </p>
+                </div>
+                {getStatusBadge(campaign.status)}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="message">תוכן ההודעה</Label>
-                <Textarea
-                  id="message"
-                  value={formData.message}
-                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                  placeholder="הקלד את תוכן ההודעה כאן..."
-                  rows={5}
-                />
-                <p className="text-sm text-gray-500">
-                  {formData.message.length} תווים
-                </p>
+              <div style={{ display: 'flex', gap: '20px', marginBottom: '15px', fontSize: '14px' }}>
+                <span>נמענים: {campaign.recipients_count}</span>
+                <span>נשלחו: {campaign.sent_count || 0}</span>
+                <span>נכשלו: {campaign.failed_count || 0}</span>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="recipients">רשימת נמענים</Label>
-                <Textarea
-                  id="recipients"
-                  value={formData.recipients}
-                  onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
-                  placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
-                  rows={5}
-                />
-                <p className="text-sm text-gray-500">
-                  {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="delay">השהייה בין הודעות (מילישניות)</Label>
-                <Input
-                  id="delay"
-                  type="number"
-                  value={formData.delay}
-                  onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) || 2000 })}
-                  min="1000"
-                  step="500"
-                />
-                <p className="text-sm text-gray-500">
-                  {formData.delay / 1000} שניות בין הודעה להודעה
-                </p>
-              </div>
-
-              <Button 
-                onClick={createCampaign} 
-                disabled={isCreating}
-                className="w-full"
-              >
-                {isCreating ? (
-                  <>
-                    <RefreshCw className="ml-2 h-4 w-4 animate-spin" />
-                    יוצר קמפיין...
-                  </>
-                ) : (
-                  <>
-                    <Send className="ml-2 h-4 w-4" />
-                    צור קמפיין
-                  </>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {campaign.status === CAMPAIGN_STATUS.READY && (
+                  <button
+                    style={{
+                      ...styles.button,
+                      ...styles.buttonPrimary,
+                      ...(isSending ? styles.buttonDisabled : {})
+                    }}
+                    onClick={() => startCampaign(campaign)}
+                    disabled={isSending}
+                  >
+                    ▶️ התחל שליחה
+                  </button>
                 )}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                
+                {campaign.status === CAMPAIGN_STATUS.RUNNING && (
+                  <button
+                    style={{
+                      ...styles.button,
+                      ...styles.buttonSecondary
+                    }}
+                    onClick={() => pauseCampaign(campaign.id)}
+                  >
+                    ⏸️ השהה
+                  </button>
+                )}
+                
+                {campaign.status === CAMPAIGN_STATUS.PAUSED && (
+                  <button
+                    style={{
+                      ...styles.button,
+                      ...styles.buttonPrimary,
+                      ...(isSending ? styles.buttonDisabled : {})
+                    }}
+                    onClick={() => resumeCampaign(campaign)}
+                    disabled={isSending}
+                  >
+                    ▶️ המשך
+                  </button>
+                )}
+                
+                {campaign.status === CAMPAIGN_STATUS.COMPLETED && (
+                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>
+                    ✅ הושלם בהצלחה
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
 
-        {/* TAB 2: CAMPAIGNS LIST */}
-        <TabsContent value="campaigns">
-          <div className="grid gap-4">
-            {/* Statistics */}
-            {stats.total > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>סטטיסטיקות נוכחיות</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{stats.total}</p>
-                      <p className="text-sm text-gray-500">סה"כ</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-green-500">{stats.sent}</p>
-                      <p className="text-sm text-gray-500">נשלחו</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-yellow-500">{stats.pending}</p>
-                      <p className="text-sm text-gray-500">ממתינים</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-red-500">{stats.failed}</p>
-                      <p className="text-sm text-gray-500">נכשלו</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+          {campaigns.length === 0 && (
+            <div style={styles.card}>
+              <p style={{ textAlign: 'center', color: '#6b7280' }}>
+                אין קמפיינים. צור קמפיין חדש כדי להתחיל.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
-            {/* Campaigns List */}
-            {campaigns.map(campaign => (
-              <Card key={campaign.id}>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <CardTitle className="text-lg">{campaign.name}</CardTitle>
-                      <p className="text-sm text-gray-500">
-                        נוצר: {new Date(campaign.created_at).toLocaleString('he-IL')}
-                      </p>
-                    </div>
-                    {getStatusBadge(campaign.status)}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span>נמענים: {campaign.recipients_count}</span>
-                      <span>נשלחו: {campaign.sent_count || 0}</span>
-                      <span>נכשלו: {campaign.failed_count || 0}</span>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      {campaign.status === CAMPAIGN_STATUS.READY && (
-                        <Button
-                          onClick={() => startCampaign(campaign)}
-                          disabled={isSending}
-                          size="sm"
-                          className="flex-1"
-                        >
-                          <Play className="ml-2 h-4 w-4" />
-                          התחל שליחה
-                        </Button>
-                      )}
-                      
-                      {campaign.status === CAMPAIGN_STATUS.RUNNING && (
-                        <Button
-                          onClick={() => pauseCampaign(campaign.id)}
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                        >
-                          <Pause className="ml-2 h-4 w-4" />
-                          השהה
-                        </Button>
-                      )}
-                      
-                      {campaign.status === CAMPAIGN_STATUS.PAUSED && (
-                        <Button
-                          onClick={() => resumeCampaign(campaign)}
-                          disabled={isSending}
-                          size="sm"
-                          className="flex-1"
-                        >
-                          <Play className="ml-2 h-4 w-4" />
-                          המשך
-                        </Button>
-                      )}
-                      
-                      {campaign.status === CAMPAIGN_STATUS.COMPLETED && (
-                        <Badge variant="success" className="flex-1 justify-center bg-green-600 text-white">
-                          הושלם בהצלחה
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+      {activeTab === 'logs' && (
+        <div style={styles.card}>
+          <h2 style={{ fontSize: '20px', marginBottom: '20px' }}>לוג פעילות</h2>
+          
+          <div style={styles.logContainer}>
+            {logs.map(log => (
+              <div key={log.id} style={styles.logEntry}>
+                <span style={{ color: '#6b7280' }}>{log.timestamp}</span>
+                <span>
+                  {log.type === 'success' && '✅'}
+                  {log.type === 'error' && '❌'}
+                  {log.type === 'warning' && '⚠️'}
+                  {log.type === 'info' && 'ℹ️'}
+                </span>
+                <span style={{
+                  color: log.type === 'error' ? '#ef4444' :
+                         log.type === 'success' ? '#10b981' :
+                         log.type === 'warning' ? '#f59e0b' :
+                         '#374151'
+                }}>
+                  {log.message}
+                </span>
+              </div>
             ))}
             
-            {campaigns.length === 0 && (
-              <Alert>
-                <AlertDescription>
-                  אין קמפיינים. צור קמפיין חדש כדי להתחיל.
-                </AlertDescription>
-              </Alert>
+            {logs.length === 0 && (
+              <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px' }}>
+                אין פעילות עדיין
+              </p>
             )}
           </div>
-        </TabsContent>
-
-        {/* TAB 3: LOGS */}
-        <TabsContent value="logs">
-          <Card>
-            <CardHeader>
-              <CardTitle>לוג פעילות</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {logs.map(log => (
-                  <div key={log.id} className="flex items-start gap-2 text-sm">
-                    {getLogIcon(log.type)}
-                    <span className="text-gray-500">{log.timestamp}</span>
-                    <span className={`flex-1 ${
-                      log.type === 'error' ? 'text-red-600' :
-                      log.type === 'success' ? 'text-green-600' :
-                      log.type === 'warning' ? 'text-yellow-600' :
-                      'text-gray-700'
-                    }`}>
-                      {log.message}
-                    </span>
-                  </div>
-                ))}
-                
-                {logs.length === 0 && (
-                  <p className="text-center text-gray-500 py-4">
-                    אין פעילות עדיין
-                  </p>
-                )}
-              </div>
-              
-              {logs.length > 0 && (
-                <Button
-                  onClick={() => setLogs([])}
-                  variant="outline"
-                  size="sm"
-                  className="mt-4 w-full"
-                >
-                  נקה לוג
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          
+          {logs.length > 0 && (
+            <button
+              style={{
+                ...styles.button,
+                ...styles.buttonSecondary,
+                marginTop: '15px',
+                width: '100%'
+              }}
+              onClick={() => setLogs([])}
+            >
+              🗑️ נקה לוג
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
