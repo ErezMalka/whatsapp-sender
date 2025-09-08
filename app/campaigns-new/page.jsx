@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase - השתמש בערכים שלך
+// Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -17,13 +17,6 @@ const CAMPAIGN_STATUS = {
   RUNNING: 'running',
   PAUSED: 'paused',
   COMPLETED: 'completed',
-  FAILED: 'failed'
-};
-
-const MESSAGE_STATUS = {
-  PENDING: 'pending',
-  SENDING: 'sending',
-  SENT: 'sent',
   FAILED: 'failed'
 };
 
@@ -70,14 +63,40 @@ export default function CampaignsNewPage() {
 
   const loadGreenApiCredentials = async () => {
     try {
-      const instanceId = localStorage.getItem('greenApiInstanceId');
-      const token = localStorage.getItem('greenApiToken');
+      // נסה לטעון מ-localStorage
+      const instanceId = localStorage.getItem('greenApiInstanceId') || localStorage.getItem('greenApiId');
+      const token = localStorage.getItem('greenApiToken') || localStorage.getItem('greenApiKey');
       
       if (instanceId && token) {
         setGreenApiCredentials({ instanceId, token });
         addLog('success', 'חיבור ל-WhatsApp פעיל ✓');
       } else {
-        addLog('warning', 'חסרים פרטי חיבור ל-WhatsApp - בדוק בהגדרות');
+        // נסה לטעון מטבלת settings אם קיימת
+        try {
+          const { data, error } = await supabase
+            .from('settings')
+            .select('*')
+            .limit(1)
+            .single();
+          
+          if (data) {
+            const id = data.green_api_instance_id || data.greenApiInstanceId || data.instanceId;
+            const tk = data.green_api_token || data.greenApiToken || data.token;
+            
+            if (id && tk) {
+              setGreenApiCredentials({ instanceId: id, token: tk });
+              localStorage.setItem('greenApiInstanceId', id);
+              localStorage.setItem('greenApiToken', tk);
+              addLog('success', 'חיבור ל-WhatsApp נטען מההגדרות ✓');
+            }
+          }
+        } catch (settingsError) {
+          console.log('No settings table or error loading:', settingsError);
+        }
+        
+        if (!greenApiCredentials.instanceId) {
+          addLog('warning', 'חסרים פרטי חיבור ל-WhatsApp - הגדר בדף ההגדרות');
+        }
       }
     } catch (error) {
       addLog('error', `שגיאה בטעינת פרטי חיבור: ${error.message}`);
@@ -91,13 +110,20 @@ export default function CampaignsNewPage() {
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading campaigns:', error);
+        addLog('warning', 'לא ניתן לטעון קמפיינים קיימים');
+        return;
+      }
       
       if (data && data.length > 0) {
         setCampaigns(data);
         addLog('info', `נטענו ${data.length} קמפיינים`);
+      } else {
+        addLog('info', 'אין קמפיינים קיימים');
       }
     } catch (error) {
+      console.error('Error:', error);
       addLog('error', `שגיאה בטעינת קמפיינים: ${error.message}`);
     }
   };
@@ -131,12 +157,14 @@ export default function CampaignsNewPage() {
         sent_count: 0,
         failed_count: 0,
         status: CAMPAIGN_STATUS.READY,
-        delay: formData.delay
+        delay: formData.delay,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
 
       const { data: campaign, error } = await supabase
         .from('campaigns')
-        .insert(campaignData)
+        .insert([campaignData])
         .select()
         .single();
 
@@ -155,6 +183,7 @@ export default function CampaignsNewPage() {
       setActiveTab('campaigns');
       
     } catch (error) {
+      console.error('Create campaign error:', error);
       addLog('error', error.message);
     } finally {
       setIsCreating(false);
@@ -166,12 +195,17 @@ export default function CampaignsNewPage() {
   // ===============================
   const startCampaign = async (campaign) => {
     try {
+      if (!greenApiCredentials.instanceId || !greenApiCredentials.token) {
+        addLog('error', 'חסרים פרטי חיבור ל-WhatsApp. עבור להגדרות להגדרת החיבור.');
+        return;
+      }
+
       setIsSending(true);
       addLog('info', `מתחיל שליחת קמפיין: ${campaign.name}`);
       
       await updateCampaignStatus(campaign.id, CAMPAIGN_STATUS.RUNNING);
       
-      const recipients = campaign.recipients;
+      const recipients = campaign.recipients || [];
       const totalRecipients = recipients.length;
       let sentCount = 0;
       let failedCount = 0;
@@ -186,6 +220,7 @@ export default function CampaignsNewPage() {
       for (let i = 0; i < recipients.length; i++) {
         const recipient = recipients[i];
         
+        // בדוק אם הקמפיין הושהה
         const { data: currentCampaign } = await supabase
           .from('campaigns')
           .select('status')
@@ -228,6 +263,7 @@ export default function CampaignsNewPage() {
           addLog('error', `✗ נכשל: ${recipient} - ${error.message}`);
         }
 
+        // עדכן את הקמפיין בדאטהבייס
         await supabase
           .from('campaigns')
           .update({
@@ -237,9 +273,11 @@ export default function CampaignsNewPage() {
           })
           .eq('id', campaign.id);
 
+        // השהייה בין הודעות
         if (i < recipients.length - 1) {
-          addLog('info', `ממתין ${campaign.delay / 1000} שניות...`);
-          await new Promise(resolve => setTimeout(resolve, campaign.delay));
+          const delaySeconds = (campaign.delay || 2000) / 1000;
+          addLog('info', `ממתין ${delaySeconds} שניות...`);
+          await new Promise(resolve => setTimeout(resolve, campaign.delay || 2000));
         }
       }
 
@@ -253,10 +291,12 @@ export default function CampaignsNewPage() {
       await loadCampaigns();
 
     } catch (error) {
+      console.error('Campaign execution error:', error);
       addLog('error', `שגיאה קריטית: ${error.message}`);
       await updateCampaignStatus(campaign.id, CAMPAIGN_STATUS.FAILED);
     } finally {
       setIsSending(false);
+      setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
     }
   };
 
@@ -267,10 +307,6 @@ export default function CampaignsNewPage() {
     try {
       const formattedPhone = formatPhoneNumber(phone);
       
-      if (!greenApiCredentials.instanceId || !greenApiCredentials.token) {
-        throw new Error('חסרים פרטי חיבור ל-Green API');
-      }
-
       const apiUrl = `https://api.green-api.com/waInstance${greenApiCredentials.instanceId}/sendMessage/${greenApiCredentials.token}`;
       
       const payload = {
@@ -288,33 +324,43 @@ export default function CampaignsNewPage() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`שגיאת API: ${response.status} - ${errorText}`);
+        throw new Error(`API Error: ${response.status}`);
       }
 
       const data = await response.json();
       
-      await supabase
-        .from('message_logs')
-        .insert({
-          campaign_id: campaignId,
-          phone: formattedPhone,
-          status: MESSAGE_STATUS.SENT,
-          message_id: data.idMessage,
-          sent_at: new Date().toISOString()
-        });
+      // נסה לשמור לוג (אם הטבלה קיימת)
+      try {
+        await supabase
+          .from('message_logs')
+          .insert({
+            campaign_id: campaignId,
+            phone: formattedPhone,
+            status: 'sent',
+            message_id: data.idMessage,
+            sent_at: new Date().toISOString()
+          });
+      } catch (logError) {
+        console.log('Could not save message log:', logError);
+      }
 
       return { success: true, messageId: data.idMessage };
       
     } catch (error) {
-      await supabase
-        .from('message_logs')
-        .insert({
-          campaign_id: campaignId,
-          phone: phone,
-          status: MESSAGE_STATUS.FAILED,
-          error: error.message,
-          sent_at: new Date().toISOString()
-        });
+      // נסה לשמור לוג כישלון
+      try {
+        await supabase
+          .from('message_logs')
+          .insert({
+            campaign_id: campaignId,
+            phone: phone,
+            status: 'failed',
+            error: error.message,
+            sent_at: new Date().toISOString()
+          });
+      } catch (logError) {
+        console.log('Could not save error log:', logError);
+      }
 
       return { success: false, error: error.message };
     }
@@ -351,6 +397,7 @@ export default function CampaignsNewPage() {
         c.id === campaignId ? { ...c, status } : c
       ));
     } catch (error) {
+      console.error('Update status error:', error);
       addLog('error', `שגיאה בעדכון סטטוס: ${error.message}`);
     }
   };
