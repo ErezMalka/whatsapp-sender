@@ -1,5 +1,5 @@
 {
-  "name": "my-app",
+  "name": "whatsapp-sender",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -21,7 +21,8 @@
     "react-dom": "^18",
     "tailwindcss": "^3.3.0",
     "typescript": "^5",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "lucide-react": "^0.309.0"
   },
   "devDependencies": {
     "@types/node": "^20",
