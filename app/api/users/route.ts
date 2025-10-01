@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
 
-// Middleware לבדיקת הרשאות - גרסה מתוקנת
+// Middleware לבדיקת הרשאות - גרסה מתוקנת עם fallback
 async function checkAdminAuth(request: NextRequest): Promise<boolean> {
   try {
-    // ננסה לקרוא מה-cookie user-info קודם (לא httpOnly)
+    // נסיון 1: בדוק header מותאם אישית
+    const userDataHeader = request.headers.get('X-User-Data');
+    if (userDataHeader) {
+      try {
+        const userData = JSON.parse(userDataHeader);
+        console.log('User from header:', userData);
+        return userData.role === 'admin' || userData.role === 'superadmin';
+      } catch (e) {
+        console.error('Error parsing user header:', e);
+      }
+    }
+
+    // נסיון 2: בדוק cookie user-info (לא httpOnly)
     const userInfo = request.cookies.get('user-info');
     if (userInfo) {
       try {
@@ -16,7 +28,7 @@ async function checkAdminAuth(request: NextRequest): Promise<boolean> {
       }
     }
 
-    // אם לא הצליח, ננסה את auth-token
+    // נסיון 3: בדוק auth-token
     const authToken = request.cookies.get('auth-token');
     if (!authToken) {
       console.log('No auth-token cookie found');
