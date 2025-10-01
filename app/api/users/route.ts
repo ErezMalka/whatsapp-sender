@@ -1,19 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
 
-// Middleware לבדיקת הרשאות
+// Middleware לבדיקת הרשאות - גרסה מתוקנת
 async function checkAdminAuth(request: NextRequest): Promise<boolean> {
   try {
-    const authToken = request.cookies.get('auth-token');
-    if (!authToken) return false;
+    // ננסה לקרוא מה-cookie user-info קודם (לא httpOnly)
+    const userInfo = request.cookies.get('user-info');
+    if (userInfo) {
+      try {
+        const userData = JSON.parse(userInfo.value);
+        console.log('User from cookie:', userData);
+        return userData.role === 'admin' || userData.role === 'superadmin';
+      } catch (e) {
+        console.error('Error parsing user-info cookie:', e);
+      }
+    }
 
-    // בדיקה בסיסית של הטוקן
-    const tokenData = JSON.parse(
-      Buffer.from(authToken.value, 'base64').toString('utf8')
-    );
-    
-    // בדיקה שהמשתמש הוא admin או superadmin
-    return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+    // אם לא הצליח, ננסה את auth-token
+    const authToken = request.cookies.get('auth-token');
+    if (!authToken) {
+      console.log('No auth-token cookie found');
+      return false;
+    }
+
+    try {
+      // בדיקה בסיסית של הטוקן
+      const tokenData = JSON.parse(
+        Buffer.from(authToken.value, 'base64').toString('utf8')
+      );
+      console.log('Token data:', tokenData);
+      return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+    } catch (error) {
+      console.error('Error parsing auth token:', error);
+      return false;
+    }
   } catch (error) {
     console.error('Auth check error:', error);
     return false;
@@ -23,8 +43,12 @@ async function checkAdminAuth(request: NextRequest): Promise<boolean> {
 // GET - קבלת רשימת משתמשים
 export async function GET(request: NextRequest) {
   try {
+    console.log('GET /api/users - Checking auth...');
+    
     // בדיקת הרשאות
     const isAdmin = await checkAdminAuth(request);
+    console.log('Is admin?', isAdmin);
+    
     if (!isAdmin) {
       return NextResponse.json(
         { error: 'אין הרשאה' },
@@ -34,6 +58,7 @@ export async function GET(request: NextRequest) {
 
     // קבלת כל המשתמשים מה-store
     const users = usersStore.getAll();
+    console.log('Found users:', users.length);
     
     // הסרת סיסמאות מהתגובה
     const safeUsers = users.map(user => ({
@@ -58,8 +83,12 @@ export async function GET(request: NextRequest) {
 // POST - יצירת משתמש חדש
 export async function POST(request: NextRequest) {
   try {
+    console.log('POST /api/users - Checking auth...');
+    
     // בדיקת הרשאות
     const isAdmin = await checkAdminAuth(request);
+    console.log('Is admin?', isAdmin);
+    
     if (!isAdmin) {
       return NextResponse.json(
         { error: 'אין הרשאה' },
@@ -69,6 +98,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { username, password, role, expiryDate } = body;
+    console.log('Creating user:', username);
 
     // וידוא שכל השדות קיימים
     if (!username || !password || !role || !expiryDate) {
@@ -95,6 +125,8 @@ export async function POST(request: NextRequest) {
       expiryDate,
       isActive: true
     });
+
+    console.log('User created successfully:', newUser.id);
 
     // החזרת המשתמש החדש ללא הסיסמה
     const safeUser = {
