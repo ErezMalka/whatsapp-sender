@@ -1,5 +1,3 @@
-// מאגר משתמשים משותף לכל ה-API routes
-
 export interface User {
   id: string;
   username: string;
@@ -10,60 +8,65 @@ export interface User {
   createdAt: string;
 }
 
-// משתמשי ברירת מחדל
+// משתמשי ברירת מחדל - תיקון שמות ה-roles
 const DEFAULT_USERS: User[] = [
   {
     id: '1',
     username: 'superadmin',
     password: 'super123',
-    role: 'super-admin',
-    expiryDate: '2030-12-31',
+    role: 'superadmin', // בלי מקף!
+    expiryDate: '2025-12-31',
     isActive: true,
-    createdAt: new Date().toISOString()
+    createdAt: '2024-01-01'
   },
   {
     id: '2',
     username: 'admin',
     password: 'admin123',
     role: 'admin',
-    expiryDate: '2030-12-31',
+    expiryDate: '2025-12-31',
     isActive: true,
-    createdAt: new Date().toISOString()
+    createdAt: '2024-01-01'
   },
   {
     id: '3',
     username: 'erez',
     password: '1234',
     role: 'user',
-    expiryDate: '2025-10-10',
+    expiryDate: '2025-12-31',
     isActive: true,
-    createdAt: new Date().toISOString()
+    createdAt: '2024-01-01'
   }
 ];
 
-// מאגר משתמשים גלובלי
+// מחלקה לניהול משתמשים
 class UsersStore {
   private users: User[] = [...DEFAULT_USERS];
 
+  // קבלת כל המשתמשים
   getAll(): User[] {
     return this.users;
   }
 
-  findByUsername(username: string): User | undefined {
-    return this.users.find(u => u.username === username);
+  // חיפוש משתמש לפי ID
+  findById(id: string): User | null {
+    return this.users.find(user => user.id === id) || null;
   }
 
-  findById(id: string): User | undefined {
-    return this.users.find(u => u.id === id);
+  // חיפוש משתמש לפי שם משתמש
+  findByUsername(username: string): User | null {
+    return this.users.find(user => user.username === username) || null;
   }
 
+  // אימות משתמש
   authenticate(username: string, password: string): User | null {
-    const user = this.users.find(u => 
-      u.username === username && u.password === password
+    const user = this.users.find(
+      u => u.username === username && u.password === password
     );
     return user || null;
   }
 
+  // יצירת משתמש חדש
   create(userData: Omit<User, 'id' | 'createdAt'>): User {
     const newUser: User = {
       ...userData,
@@ -71,35 +74,32 @@ class UsersStore {
       createdAt: new Date().toISOString()
     };
     this.users.push(newUser);
-    console.log('User created:', newUser.username, 'Total users:', this.users.length);
     return newUser;
   }
 
+  // עדכון משתמש
   update(id: string, updates: Partial<User>): User | null {
-    const index = this.users.findIndex(u => u.id === id);
+    const index = this.users.findIndex(user => user.id === id);
     if (index === -1) return null;
     
     this.users[index] = {
       ...this.users[index],
       ...updates,
-      id // Keep original ID
+      id: this.users[index].id // וודא שה-ID לא משתנה
     };
+    
     return this.users[index];
   }
 
+  // מחיקת משתמש
   delete(id: string): boolean {
-    const index = this.users.findIndex(u => u.id === id);
+    const index = this.users.findIndex(user => user.id === id);
     if (index === -1) return false;
-    
-    // אל תמחק super-admin
-    if (this.users[index].role === 'super-admin') {
-      return false;
-    }
     
     this.users.splice(index, 1);
     return true;
   }
 }
 
-// יצירת instance יחיד שישותף בין כל ה-routes
+// יצירת instance יחיד
 export const usersStore = new UsersStore();
