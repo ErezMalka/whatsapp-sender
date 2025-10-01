@@ -1,24 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+// מסד נתונים זמני בזיכרון (לפיתוח)
+let campaigns: any[] = [];
+let campaignIdCounter = 1;
 
 // GET - קבלת רשימת קמפיינים
 export async function GET(request: NextRequest) {
   try {
-    const campaigns = await prisma.campaign.findMany({
-      orderBy: {
-        createdAt: 'desc'
-      },
-      include: {
-        _count: {
-          select: {
-            recipients: true
-          }
-        }
-      }
-    });
-    
     return NextResponse.json(campaigns);
   } catch (error) {
     console.error('Error fetching campaigns:', error);
@@ -35,83 +23,28 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, message, sendSpeed, groupIds, contactIds } = body;
 
-    // יצירת הקמפיין
-    const campaign = await prisma.campaign.create({
-      data: {
-        name,
-        message,
-        sendSpeed: sendSpeed || 5,
-        status: 'pending',
-        totalRecipients: 0,
-        sentCount: 0
-      }
-    });
+    // יצירת קמפיין חדש
+    const newCampaign = {
+      id: campaignIdCounter++,
+      name,
+      message,
+      sendSpeed: sendSpeed || 5,
+      status: 'pending',
+      groupIds,
+      contactIds,
+      totalRecipients: (groupIds?.length || 0) * 50 + (contactIds?.length || 0), // הערכה
+      sentCount: 0,
+      createdAt: new Date().toISOString()
+    };
 
-    // הוספת נמענים מקבוצות
-    if (groupIds && groupIds.length > 0) {
-      // מצא את כל אנשי הקשר בקבוצות
-      const groupMembers = await prisma.groupMember.findMany({
-        where: {
-          groupId: {
-            in: groupIds
-          }
-        },
-        select: {
-          contactId: true
-        }
-      });
+    campaigns.push(newCampaign);
 
-      // הוסף אותם כנמענים
-      const recipientData = groupMembers.map(member => ({
-        campaignId: campaign.id,
-        contactId: member.contactId,
-        status: 'pending' as const
-      }));
-
-      if (recipientData.length > 0) {
-        await prisma.campaignRecipient.createMany({
-          data: recipientData,
-          skipDuplicates: true
-        });
-      }
-    }
-
-    // הוספת אנשי קשר בודדים
-    if (contactIds && contactIds.length > 0) {
-      const contactRecipients = contactIds.map((contactId: number) => ({
-        campaignId: campaign.id,
-        contactId,
-        status: 'pending' as const
-      }));
-
-      await prisma.campaignRecipient.createMany({
-        data: contactRecipients,
-        skipDuplicates: true
-      });
-    }
-
-    // עדכון מספר הנמענים הכולל
-    const totalRecipients = await prisma.campaignRecipient.count({
-      where: {
-        campaignId: campaign.id
-      }
-    });
-
-    const updatedCampaign = await prisma.campaign.update({
-      where: {
-        id: campaign.id
-      },
-      data: {
-        totalRecipients
-      }
-    });
-
-    // TODO: התחל את תהליך השליחה
-    // startSendingProcess(campaign.id);
+    // TODO: כאן תוסיף לוגיקה לשליחת הודעות WhatsApp
+    console.log('Campaign created:', newCampaign);
 
     return NextResponse.json({
       success: true,
-      campaign: updatedCampaign
+      campaign: newCampaign
     });
 
   } catch (error) {
