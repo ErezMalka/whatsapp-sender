@@ -1,19 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
 
-// Middleware לבדיקת הרשאות
+// Middleware לבדיקת הרשאות - גרסה מתוקנת
 async function checkAdminAuth(request: NextRequest): Promise<boolean> {
   try {
-    const authToken = request.cookies.get('auth-token');
-    if (!authToken) return false;
+    // ננסה לקרוא מה-cookie user-info קודם (לא httpOnly)
+    const userInfo = request.cookies.get('user-info');
+    if (userInfo) {
+      try {
+        const userData = JSON.parse(userInfo.value);
+        console.log('User from cookie:', userData);
+        return userData.role === 'admin' || userData.role === 'superadmin';
+      } catch (e) {
+        console.error('Error parsing user-info cookie:', e);
+      }
+    }
 
-    // בדיקה בסיסית של הטוקן
-    const tokenData = JSON.parse(
-      Buffer.from(authToken.value, 'base64').toString('utf8')
-    );
-    
-    // בדיקה שהמשתמש הוא admin או superadmin
-    return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+    // אם לא הצליח, ננסה את auth-token
+    const authToken = request.cookies.get('auth-token');
+    if (!authToken) {
+      console.log('No auth-token cookie found');
+      return false;
+    }
+
+    try {
+      // בדיקה בסיסית של הטוקן
+      const tokenData = JSON.parse(
+        Buffer.from(authToken.value, 'base64').toString('utf8')
+      );
+      console.log('Token data:', tokenData);
+      return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+    } catch (error) {
+      console.error('Error parsing auth token:', error);
+      return false;
+    }
   } catch (error) {
     console.error('Auth check error:', error);
     return false;
