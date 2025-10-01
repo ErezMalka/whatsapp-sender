@@ -1,7 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { toast } from '@/components/ui/use-toast';
+import { Loader2, Save, UserPlus, Trash2, Edit2, X, Check, Users, Settings, Database } from 'lucide-react';
 
 interface User {
   id: string;
@@ -12,476 +22,517 @@ interface User {
   createdAt: string;
 }
 
-export default function SettingsPage() {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState('whatsapp');
-  
-  // WhatsApp Settings
-  const [instanceId, setInstanceId] = useState('');
-  const [apiToken, setApiToken] = useState('');
-  const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState('');
-  
-  // Users Management
+export default function AdminSettingsPage() {
   const [users, setUsers] = useState<User[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
-  
-  const [formData, setFormData] = useState({
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [editedUser, setEditedUser] = useState<Partial<User>>({});
+  const [newUser, setNewUser] = useState({
     username: '',
     password: '',
-    expiryDate: '',
-    role: 'user'
+    role: 'user',
+    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
+  const [supabaseUrl, setSupabaseUrl] = useState('');
+  const [supabaseKey, setSupabaseKey] = useState('');
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [currentUserInfo, setCurrentUserInfo] = useState<any>(null);
 
   useEffect(() => {
-    setInstanceId('7103914530');
-    setApiToken('d80385666656407bab2a9808a7e21c109cfda1df83a343c3be');
-    if (activeTab === 'users') {
-      fetchUsers();
+    fetchUsers();
+    loadSupabaseConfig();
+    checkCurrentUser();
+  }, []);
+
+  const checkCurrentUser = () => {
+    // בדיקת המשתמש הנוכחי מ-localStorage
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      setCurrentUserInfo(user);
+      console.log('Current user from localStorage:', user);
     }
-  }, [activeTab]);
+
+    // בדיקת cookies
+    console.log('Current cookies:', document.cookie);
+  };
+
+  const getAuthHeaders = () => {
+    // נסה לקבל את המידע מ-localStorage אם אין cookies
+    const headers: any = {
+      'Content-Type': 'application/json',
+    };
+
+    // הוסף מידע על המשתמש אם קיים
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      headers['X-User-Data'] = userStr;
+    }
+
+    return headers;
+  };
 
   const fetchUsers = async () => {
-    try {
-      const res = await fetch('/api/users');
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-    }
-  };
-
-  const testConnection = async () => {
-    setTesting(true);
-    setMessage('');
-    
-    try {
-      const res = await fetch('/api/green/ping', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceId, apiToken })
-      });
-      
-      const data = await res.json();
-      
-      if (data.success) {
-        setMessage(`✅ Connected! Status: ${data.status}`);
-      } else {
-        setMessage(`❌ ${data.error || 'Connection failed'}`);
-      }
-    } catch (err) {
-      setMessage('❌ Network error - check console');
-      console.error(err);
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
     setLoading(true);
-    
     try {
-      const url = editingUser 
-        ? `/api/users/${editingUser.id}`
-        : '/api/users';
-      
-      const method = editingUser ? 'PUT' : 'POST';
-      
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+      console.log('Fetching users...');
+      const response = await fetch('/api/users', {
+        credentials: 'include',
+        headers: getAuthHeaders()
       });
-
-      if (res.ok) {
-        fetchUsers();
-        setShowAddModal(false);
-        setEditingUser(null);
-        setFormData({
-          username: '',
-          password: '',
-          expiryDate: '',
-          role: 'user'
-        });
-      } else {
-        const error = await res.json();
-        alert(error.error || 'שגיאה בשמירה');
+      
+      console.log('Users fetch response:', response.status);
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch users');
       }
-    } catch (error) {
-      alert('שגיאה בשמירה');
+      
+      const data = await response.json();
+      console.log('Users data:', data);
+      setUsers(data);
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
+      toast({
+        title: 'שגיאה',
+        description: error.message || 'שגיאה בטעינת המשתמשים',
+        variant: 'destructive'
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('האם אתה בטוח שברצונך למחוק משתמש זה?')) {
-      try {
-        const res = await fetch(`/api/users/${id}`, {
-          method: 'DELETE'
-        });
-        
-        if (res.ok) {
-          fetchUsers();
-        }
-      } catch (error) {
-        alert('שגיאה במחיקה');
-      }
-    }
-  };
-
-  const toggleUserStatus = async (user: User) => {
-    try {
-      const res = await fetch(`/api/users/${user.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !user.isActive })
+  const handleCreateUser = async () => {
+    if (!newUser.username || !newUser.password) {
+      toast({
+        title: 'שגיאה',
+        description: 'נא למלא את כל השדות',
+        variant: 'destructive'
       });
-      
-      if (res.ok) {
-        fetchUsers();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      console.log('Creating user:', newUser);
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(newUser)
+      });
+
+      console.log('Create user response:', response.status);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create user');
       }
-    } catch (error) {
-      alert('שגיאה בעדכון סטטוס');
+
+      toast({
+        title: 'הצלחה',
+        description: 'המשתמש נוצר בהצלחה'
+      });
+
+      setNewUser({
+        username: '',
+        password: '',
+        role: 'user',
+        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      });
+
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error creating user:', error);
+      toast({
+        title: 'שגיאה',
+        description: error.message || 'שגיאה ביצירת המשתמש',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
+  const handleUpdateUser = async (userId: string) => {
+    setLoading(true);
+    try {
+      console.log('Updating user:', userId, editedUser);
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(editedUser)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update user');
+      }
+
+      toast({
+        title: 'הצלחה',
+        description: 'המשתמש עודכן בהצלחה'
+      });
+
+      setEditingUser(null);
+      setEditedUser({});
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error updating user:', error);
+      toast({
+        title: 'שגיאה',
+        description: error.message || 'שגיאה בעדכון המשתמש',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const isExpired = (expiryDate: string) => {
-    return new Date(expiryDate) < new Date();
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק משתמש זה?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      console.log('Deleting user:', userId);
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete user');
+      }
+
+      toast({
+        title: 'הצלחה',
+        description: 'המשתמש נמחק בהצלחה'
+      });
+
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: 'שגיאה',
+        description: error.message || 'שגיאה במחיקת המשתמש',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('he-IL');
+  const loadSupabaseConfig = () => {
+    setSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+    setSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
+  };
+
+  const testConnection = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/test-connection');
+      const data = await response.json();
+      setTestResult(data);
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: 'Failed to test connection'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            ⚙️ הגדרות מערכת
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-          >
-            🚪 התנתק
-          </button>
-        </div>
+    <div className="container mx-auto p-6 max-w-6xl" dir="rtl">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold">הגדרות מערכת</h1>
+        <p className="text-gray-500">ניהול משתמשים והגדרות המערכת</p>
         
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex -mb-px">
-              <button
-                onClick={() => setActiveTab('whatsapp')}
-                className={`py-3 px-6 border-b-2 font-medium text-sm transition ${
-                  activeTab === 'whatsapp'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                🔌 חיבור WhatsApp
-              </button>
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`py-3 px-6 border-b-2 font-medium text-sm transition ${
-                  activeTab === 'users'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                👥 ניהול משתמשים
-              </button>
-            </nav>
+        {/* הצגת מידע על המשתמש הנוכחי */}
+        {currentUserInfo && (
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+            <p className="text-sm">
+              מחובר כ: <strong>{currentUserInfo.username}</strong> | 
+              תפקיד: <Badge>{currentUserInfo.role}</Badge>
+            </p>
           </div>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'whatsapp' ? (
-          <>
-            {message && (
-              <div className={`mb-6 p-4 rounded-lg ${
-                message.includes('✅') 
-                  ? 'bg-green-50 border border-green-200 text-green-800' 
-                  : 'bg-red-50 border border-red-200 text-red-800'
-              }`}>
-                {message}
-              </div>
-            )}
-            
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-semibold mb-6">
-                הגדרות חיבור WhatsApp
-              </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Instance ID
-                  </label>
-                  <input
-                    type="text"
-                    value={instanceId}
-                    onChange={(e) => setInstanceId(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    API Token
-                  </label>
-                  <input
-                    type="password"
-                    value={apiToken}
-                    onChange={(e) => setApiToken(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={testConnection}
-                    disabled={testing || !instanceId || !apiToken}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition"
-                  >
-                    {testing ? 'בודק...' : '🔌 בדוק חיבור'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Users Tab */}
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => {
-                  setShowAddModal(true);
-                  setEditingUser(null);
-                  setFormData({
-                    username: '',
-                    password: '',
-                    expiryDate: '',
-                    role: 'user'
-                  });
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                הוסף משתמש חדש
-              </button>
-            </div>
-
-            <div className="bg-white shadow rounded-lg overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      שם משתמש
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      תפקיד
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      תאריך תפוגה
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      סטטוס
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      פעולות
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {user.username}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          user.role === 'admin' 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {user.role === 'admin' ? 'מנהל' : 'משתמש'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`text-sm ${
-                          isExpired(user.expiryDate) ? 'text-red-600 font-bold' : 'text-gray-900'
-                        }`}>
-                          {formatDate(user.expiryDate)}
-                          {isExpired(user.expiryDate) && (
-                            <span className="block text-xs">פג תוקף</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => toggleUserStatus(user)}
-                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full cursor-pointer transition ${
-                            user.isActive
-                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                              : 'bg-red-100 text-red-800 hover:bg-red-200'
-                          }`}
-                        >
-                          {user.isActive ? 'פעיל' : 'לא פעיל'}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            setEditingUser(user);
-                            setFormData({
-                              username: user.username,
-                              password: '',
-                              expiryDate: user.expiryDate.split('T')[0],
-                              role: user.role
-                            });
-                            setShowAddModal(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-900 ml-4"
-                        >
-                          עריכה
-                        </button>
-                        <button
-                          onClick={() => handleDelete(user.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          מחיקה
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              
-              {users.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  אין משתמשים במערכת
-                </div>
-              )}
-            </div>
-
-            {/* Add/Edit Modal */}
-            {showAddModal && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white rounded-lg p-6 w-full max-w-md">
-                  <h2 className="text-xl font-bold mb-4">
-                    {editingUser ? 'עריכת משתמש' : 'הוספת משתמש חדש'}
-                  </h2>
-                  
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        שם משתמש
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.username}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          username: e.target.value
-                        })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        סיסמה {editingUser && '(השאר ריק אם לא רוצה לשנות)'}
-                      </label>
-                      <input
-                        type="password"
-                        required={!editingUser}
-                        value={formData.password}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          password: e.target.value
-                        })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        תאריך תפוגה
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={formData.expiryDate}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          expiryDate: e.target.value
-                        })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        תפקיד
-                      </label>
-                      <select
-                        value={formData.role}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          role: e.target.value
-                        })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="user">משתמש</option>
-                        <option value="admin">מנהל</option>
-                      </select>
-                    </div>
-                    
-                    <div className="flex gap-3 justify-end pt-4">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddModal(false);
-                          setEditingUser(null);
-                        }}
-                        className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition"
-                      >
-                        ביטול
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition"
-                      >
-                        {loading ? 'שומר...' : (editingUser ? 'עדכן' : 'הוסף')}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </>
         )}
       </div>
+
+      <Tabs defaultValue="users" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="users" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            ניהול משתמשים
+          </TabsTrigger>
+          <TabsTrigger value="database" className="flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            הגדרות מסד נתונים
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>הוספת משתמש חדש</CardTitle>
+              <CardDescription>צור משתמש חדש במערכת</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                  <Label htmlFor="username">שם משתמש</Label>
+                  <Input
+                    id="username"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                    placeholder="הזן שם משתמש"
+                    disabled={loading}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="password">סיסמה</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    placeholder="הזן סיסמה"
+                    disabled={loading}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="role">תפקיד</Label>
+                  <Select
+                    value={newUser.role}
+                    onValueChange={(value) => setNewUser({ ...newUser, role: value })}
+                    disabled={loading}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">משתמש</SelectItem>
+                      <SelectItem value="admin">מנהל</SelectItem>
+                      <SelectItem value="superadmin">מנהל ראשי</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="expiryDate">תאריך תפוגה</Label>
+                  <Input
+                    id="expiryDate"
+                    type="date"
+                    value={newUser.expiryDate}
+                    onChange={(e) => setNewUser({ ...newUser, expiryDate: e.target.value })}
+                    disabled={loading}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={handleCreateUser} disabled={loading} className="w-full">
+                    {loading ? (
+                      <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <UserPlus className="ml-2 h-4 w-4" />
+                    )}
+                    הוסף משתמש
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>רשימת משתמשים</CardTitle>
+              <CardDescription>ניהול המשתמשים הקיימים במערכת</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading && users.length === 0 ? (
+                <div className="flex justify-center p-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>שם משתמש</TableHead>
+                      <TableHead>תפקיד</TableHead>
+                      <TableHead>תאריך תפוגה</TableHead>
+                      <TableHead>סטטוס</TableHead>
+                      <TableHead>תאריך יצירה</TableHead>
+                      <TableHead>פעולות</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          {editingUser === user.id ? (
+                            <Input
+                              value={editedUser.username || user.username}
+                              onChange={(e) => setEditedUser({ ...editedUser, username: e.target.value })}
+                              className="w-32"
+                            />
+                          ) : (
+                            <span className="font-medium">{user.username}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingUser === user.id ? (
+                            <Select
+                              value={editedUser.role || user.role}
+                              onValueChange={(value) => setEditedUser({ ...editedUser, role: value })}
+                            >
+                              <SelectTrigger className="w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="user">משתמש</SelectItem>
+                                <SelectItem value="admin">מנהל</SelectItem>
+                                <SelectItem value="superadmin">מנהל ראשי</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={user.role === 'superadmin' ? 'destructive' : user.role === 'admin' ? 'default' : 'secondary'}>
+                              {user.role}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingUser === user.id ? (
+                            <Input
+                              type="date"
+                              value={editedUser.expiryDate?.split('T')[0] || user.expiryDate.split('T')[0]}
+                              onChange={(e) => setEditedUser({ ...editedUser, expiryDate: e.target.value })}
+                              className="w-36"
+                            />
+                          ) : (
+                            new Date(user.expiryDate).toLocaleDateString('he-IL')
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingUser === user.id ? (
+                            <Switch
+                              checked={editedUser.isActive !== undefined ? editedUser.isActive : user.isActive}
+                              onCheckedChange={(checked) => setEditedUser({ ...editedUser, isActive: checked })}
+                            />
+                          ) : (
+                            <Badge variant={user.isActive ? 'success' : 'destructive'}>
+                              {user.isActive ? 'פעיל' : 'לא פעיל'}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {new Date(user.createdAt).toLocaleDateString('he-IL')}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {editingUser === user.id ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleUpdateUser(user.id)}
+                                  disabled={loading}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingUser(null);
+                                    setEditedUser({});
+                                  }}
+                                  disabled={loading}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingUser(user.id);
+                                    setEditedUser({});
+                                  }}
+                                  disabled={loading || user.role === 'superadmin'}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  disabled={loading || user.role === 'superadmin'}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="database" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>הגדרות Supabase</CardTitle>
+              <CardDescription>הגדר את החיבור למסד הנתונים</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="supabase-url">Supabase URL</Label>
+                <Input
+                  id="supabase-url"
+                  value={supabaseUrl}
+                  readOnly
+                  placeholder="לא מוגדר"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supabase-key">Supabase Anon Key</Label>
+                <Input
+                  id="supabase-key"
+                  type="password"
+                  value={supabaseKey}
+                  readOnly
+                  placeholder="לא מוגדר"
+                />
+              </div>
+              <Button onClick={testConnection} disabled={loading}>
+                {loading ? (
+                  <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Settings className="ml-2 h-4 w-4" />
+                )}
+                בדוק חיבור
+              </Button>
+              {testResult && (
+                <div className={`p-4 rounded-lg ${testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                  {testResult.message}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
