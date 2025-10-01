@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
 
-// Middleware לבדיקת הרשאות - גרסה מתוקנת
+// Middleware לבדיקת הרשאות - גרסה מתוקנת עם תמיכה במקפים
 async function checkAdminAuth(request: NextRequest): Promise<boolean> {
   try {
     // ננסה לקרוא מה-cookie user-info קודם (לא httpOnly)
@@ -10,7 +10,9 @@ async function checkAdminAuth(request: NextRequest): Promise<boolean> {
       try {
         const userData = JSON.parse(userInfo.value);
         console.log('User from cookie:', userData);
-        return userData.role === 'admin' || userData.role === 'superadmin';
+        // נקה מקפים מה-role לבדיקה
+        const cleanRole = userData.role?.replace('-', '') || '';
+        return cleanRole === 'admin' || cleanRole === 'superadmin';
       } catch (e) {
         console.error('Error parsing user-info cookie:', e);
       }
@@ -29,7 +31,9 @@ async function checkAdminAuth(request: NextRequest): Promise<boolean> {
         Buffer.from(authToken.value, 'base64').toString('utf8')
       );
       console.log('Token data:', tokenData);
-      return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+      // נקה מקפים מה-role לבדיקה
+      const cleanRole = tokenData.role?.replace('-', '') || '';
+      return cleanRole === 'admin' || cleanRole === 'superadmin';
     } catch (error) {
       console.error('Error parsing auth token:', error);
       return false;
