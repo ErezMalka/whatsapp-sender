@@ -2,18 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, User, Lock, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
   const router = useRouter();
 
@@ -31,7 +26,7 @@ export default function LoginPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include', // חשוב! מוודא ש-cookies נשלחים ומתקבלים
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       });
 
@@ -52,13 +47,15 @@ export default function LoginPage() {
         console.log('User saved to localStorage:', data.user);
       }
 
-      // הצגת מידע דיבוג למשתמש (רק בפיתוח)
-      setDebugInfo({
-        status: 'Success',
-        user: data.user,
-        cookies: cookiesCheck ? 'Cookies set' : 'No cookies found',
-        localStorage: 'User data saved'
-      });
+      // הצגת מידע דיבוג
+      if (showDebug) {
+        setDebugInfo({
+          status: 'Success',
+          user: data.user,
+          cookies: cookiesCheck ? 'Cookies set' : 'No cookies found',
+          localStorage: 'User data saved'
+        });
+      }
 
       // המתנה קצרה לפני ניתוב
       setTimeout(() => {
@@ -69,36 +66,57 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'שגיאה בהתחברות');
-      setDebugInfo({
-        status: 'Error',
-        message: err.message,
-        cookies: document.cookie || 'No cookies'
-      });
+      if (showDebug) {
+        setDebugInfo({
+          status: 'Error',
+          message: err.message,
+          cookies: document.cookie || 'No cookies'
+        });
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  const styles = {
+    container: 'min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50 p-4',
+    card: 'w-full max-w-md p-8 space-y-6 bg-white/95 backdrop-blur shadow-xl rounded-lg',
+    header: 'space-y-2 text-center',
+    icon: 'mx-auto w-16 h-16 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-bold',
+    title: 'text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent',
+    subtitle: 'text-gray-500',
+    form: 'space-y-5',
+    fieldGroup: 'space-y-2',
+    label: 'text-right flex items-center gap-2 text-sm font-medium text-gray-700',
+    input: 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right disabled:opacity-50',
+    button: 'w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-md hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2',
+    error: 'p-3 bg-red-50 border border-red-200 text-red-800 rounded-md text-right text-sm',
+    debug: 'p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-left text-xs font-mono overflow-auto',
+    info: 'text-center text-sm text-gray-500 space-y-1',
+    infoBox: 'font-mono text-xs bg-gray-100 p-2 rounded',
+    checkbox: 'flex items-center gap-2 text-sm text-gray-600'
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50 p-4">
-      <Card className="w-full max-w-md p-8 space-y-6 bg-white/95 backdrop-blur shadow-xl">
-        <div className="space-y-2 text-center">
-          <div className="mx-auto w-16 h-16 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center">
-            <User className="w-8 h-8 text-white" />
+    <div className={styles.container}>
+      <div className={styles.card}>
+        <div className={styles.header}>
+          <div className={styles.icon}>
+            <span>👤</span>
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+          <h1 className={styles.title}>
             התחברות למערכת
           </h1>
-          <p className="text-gray-500">הזן את פרטי המשתמש שלך</p>
+          <p className={styles.subtitle}>הזן את פרטי המשתמש שלך</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="username" className="text-right flex items-center gap-2">
-              <User className="w-4 h-4" />
+        <form onSubmit={handleSubmit} className={styles.form}>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="username" className={styles.label}>
+              <span>👤</span>
               שם משתמש
-            </Label>
-            <Input
+            </label>
+            <input
               id="username"
               type="text"
               value={username}
@@ -106,17 +124,18 @@ export default function LoginPage() {
               placeholder="הזן שם משתמש"
               required
               disabled={isLoading}
-              className="text-right"
+              className={styles.input}
               dir="rtl"
+              autoComplete="username"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password" className="text-right flex items-center gap-2">
-              <Lock className="w-4 h-4" />
+          <div className={styles.fieldGroup}>
+            <label htmlFor="password" className={styles.label}>
+              <span>🔒</span>
               סיסמה
-            </Label>
-            <Input
+            </label>
+            <input
               id="password"
               type="password"
               value={password}
@@ -124,56 +143,62 @@ export default function LoginPage() {
               placeholder="הזן סיסמה"
               required
               disabled={isLoading}
-              className="text-right"
+              className={styles.input}
               dir="rtl"
+              autoComplete="current-password"
             />
           </div>
 
+          <div className={styles.checkbox}>
+            <input
+              type="checkbox"
+              id="showDebug"
+              checked={showDebug}
+              onChange={(e) => setShowDebug(e.target.checked)}
+            />
+            <label htmlFor="showDebug">הצג מידע דיבוג</label>
+          </div>
+
           {error && (
-            <Alert variant="destructive">
-              <AlertDescription className="text-right">
-                {error}
-              </AlertDescription>
-            </Alert>
+            <div className={styles.error}>
+              {error}
+            </div>
           )}
 
-          {/* Debug info - הצג רק בפיתוח */}
-          {debugInfo && (
-            <Alert className="border-blue-200 bg-blue-50">
-              <AlertDescription className="text-left text-xs font-mono">
-                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
-              </AlertDescription>
-            </Alert>
+          {debugInfo && showDebug && (
+            <div className={styles.debug}>
+              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+            </div>
           )}
 
-          <Button
+          <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+            className={styles.button}
           >
             {isLoading ? (
               <>
-                <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                <span className="inline-block animate-spin">⏳</span>
                 מתחבר...
               </>
             ) : (
               <>
-                <LogIn className="ml-2 h-4 w-4" />
+                <span>🚀</span>
                 התחבר
               </>
             )}
-          </Button>
+          </button>
         </form>
 
-        <div className="text-center text-sm text-gray-500 space-y-1">
+        <div className={styles.info}>
           <p>משתמשי ברירת מחדל:</p>
-          <div className="font-mono text-xs bg-gray-100 p-2 rounded">
+          <div className={styles.infoBox}>
             <p>superadmin / super123</p>
             <p>admin / admin123</p>
             <p>erez / 1234</p>
           </div>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }
