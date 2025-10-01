@@ -1,63 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import jwt from 'jsonwebtoken';
+import { usersStore } from '@/lib/users-store';
 
-export const dynamic = 'force-dynamic';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-const USERS = [
-  {
-    id: '1',
-    username: 'superadmin',
-    password: 'super123',
-    role: 'super-admin',
-    expiryDate: '2030-12-31',
-    isActive: true
-  },
-  {
-    id: '2',
-    username: 'admin',
-    password: 'admin123',
-    role: 'admin',
-    expiryDate: '2030-12-31',
-    isActive: true
-  },
-  {
-    id: '3',
-    username: 'erez',
-    password: '1234',
-    role: 'user',
-    expiryDate: '2025-10-10',
-    isActive: true
-  }
-];
-
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await request.json();
     const { username, password } = body;
-    
-    console.log('Login attempt:', { username });
 
-    const user = USERS.find(u => 
-      u.username === username && u.password === password
-    );
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: 'שם משתמש וסיסמה נדרשים' },
+        { status: 400 }
+      );
+    }
+
+    // שימוש ב-usersStore לאימות
+    const user = usersStore.authenticate(username, password);
 
     if (!user) {
-      console.log('User not found or wrong password');
       return NextResponse.json(
         { error: 'שם משתמש או סיסמה שגויים' },
         { status: 401 }
       );
     }
 
-    const expiryDate = new Date(user.expiryDate);
-    const today = new Date();
-    
-    if (expiryDate < today) {
-      return NextResponse.json(
-        { error: 'המנוי פג תוקף' },
-        { status: 403 }
-      );
-    }
-
+    // בדיקה אם המשתמש פעיל
     if (!user.isActive) {
       return NextResponse.json(
         { error: 'החשבון אינו פעיל' },
@@ -65,51 +34,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const token = Buffer.from(JSON.stringify({
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-      expiryDate: user.expiryDate,
-      timestamp: Date.now()
-    })).toString('base64');
+    // בדיקת תוקף החשבון
+    const expiryDate = new Date(user.expiryDate);
+    if (expiryDate < new Date()) {
+      return NextResponse.json(
+        { error: 'תוקף החשבון פג' },
+        { status: 403 }
+      );
+    }
 
-    const response = NextResponse.json({ 
-      success: true,
-      user: {
-        id: user.id,
+    // יצירת JWT token
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
         username: user.username,
-        role: user.role,
-        expiryDate: user.expiryDate
-      }
-    });
+        role: user.role 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
-    response.cookies.set('auth-token', token, {
+    // יצירת response עם cookie
+    const response = NextResponse.json(
+      { 
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          expiryDate: user.expiryDate
+        }
+      },
+      { status: 200 }
+    );
+
+    // הגדרת cookie עם JWT
+    response.cookies.set({
+      name: 'auth-token',
+      value: token,
       httpOnly: true,
-      secure: false,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 86400, // 24 hours
       path: '/'
     });
 
-    console.log('Login successful for:', username);
     return response;
-
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { error: 'שגיאת שרת' },
+      { error: 'שגיאה בתהליך ההתחברות' },
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  return NextResponse.json({ 
-    message: 'Auth API is working',
-    users: USERS.map(u => ({
-      username: u.username,
-      role: u.role,
-      hint: `Password: ${u.password}`
-    }))
-  });
 }
