@@ -84,12 +84,14 @@ export async function POST(request: NextRequest) {
     });
 
     // שמירת פרטי המשתמש ב-cookie נוסף לשימוש בצד הלקוח
+    // וידוא שה-role נשמר נכון (בלי מקפים)
+    const cleanRole = user.role.replace('-', ''); // הסרת מקפים אם יש
     response.cookies.set({
       name: 'user-info',
       value: JSON.stringify({
         id: user.id,
         username: user.username,
-        role: user.role
+        role: cleanRole
       }),
       httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
