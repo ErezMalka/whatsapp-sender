@@ -2,55 +2,47 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  // דפים מוגנים
-  const protectedPaths = ['/admin'];
   const pathname = request.nextUrl.pathname;
   
+  // רשימת דפים מוגנים
+  const protectedPaths = ['/admin'];
+  
+  // בדיקה אם זה דף מוגן
   const isProtectedPath = protectedPaths.some(path => 
     pathname.startsWith(path)
   );
 
-  // אם זה דף מוגן (חוץ מדף ההגדרות הראשון)
+  // אם זה דף מוגן (אבל לא דף ההגדרות עצמו)
   if (isProtectedPath && pathname !== '/admin/settings') {
     const token = request.cookies.get('auth-token');
     
+    // אם אין טוקן - שלח להתחברות
     if (!token) {
-      const url = new URL('/login', request.url);
-      return NextResponse.redirect(url);
+      console.log('No token found, redirecting to login');
+      return NextResponse.redirect(new URL('/login', request.url));
     }
 
     try {
-      // בדיקה בסיסית של הטוקן
-      const parts = token.value.split('.');
-      if (parts.length !== 3) {
-        throw new Error('Invalid token');
-      }
+      // פענוח הטוקן
+      const decoded = JSON.parse(
+        Buffer.from(token.value, 'base64').toString()
+      );
       
-      const payload = JSON.parse(atob(parts[1]));
-      
-      // בדיקת תאריך תפוגה של המשתמש
-      if (payload.expiryDate) {
-        const expiryDate = new Date(payload.expiryDate);
-        if (expiryDate < new Date()) {
-          const url = new URL('/login?expired=true', request.url);
-          const response = NextResponse.redirect(url);
-          response.cookies.delete('auth-token');
-          return response;
-        }
-      }
-      
-      // בדיקת תפוגת הטוקן עצמו
-      if (payload.exp && payload.exp < Date.now()) {
-        const url = new URL('/login', request.url);
-        const response = NextResponse.redirect(url);
+      // בדיקת תוקף
+      const expiryDate = new Date(decoded.expiryDate);
+      if (expiryDate < new Date()) {
+        console.log('User subscription expired');
+        const response = NextResponse.redirect(new URL('/login?expired=true', request.url));
         response.cookies.delete('auth-token');
         return response;
       }
       
+      console.log('User authenticated:', decoded.username);
       return NextResponse.next();
+      
     } catch (error) {
-      const url = new URL('/login', request.url);
-      return NextResponse.redirect(url);
+      console.error('Token validation error:', error);
+      return NextResponse.redirect(new URL('/login', request.url));
     }
   }
 
@@ -58,8 +50,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/admin/:path*',
-    '/((?!api|_next/static|_next/image|favicon.ico).*)'
-  ]
+  matcher: ['/admin/:path*']
 };
