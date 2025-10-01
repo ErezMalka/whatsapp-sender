@@ -1,73 +1,145 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { verifyPassword, generateToken } from '@/lib/auth';
+// מסד נתונים של משתמשים - בזיכרון
+export interface User {
+  id: string;
+  username: string;
+  password: string; // מוצפן
+  role: 'super-admin' | 'admin' | 'user';
+  expiryDate: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
-export async function POST(req: NextRequest) {
-  try {
-    const { username, password } = await req.json();
+// פונקציית הצפנה פשוטה
+export async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'salt-2024-key');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
-    const user = await db.users.findUnique({ username });
+// משתמשים קבועים במערכת
+// הסיסמאות כבר מוצפנות
+export const DEFAULT_USERS: User[] = [
+  {
+    id: '1',
+    username: 'superadmin',
+    password: 'f0e2f9784a98554cd5c7e6f39e7b2f3a908c45c4b1e8a9f87d5c3a2b1e4f6a8c', // super123
+    role: 'super-admin',
+    expiryDate: '2030-12-31',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: '2', 
+    username: 'admin',
+    password: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', // admin123
+    role: 'admin',
+    expiryDate: '2030-12-31',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: '3',
+    username: 'erez',
+    password: '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', // 1234
+    role: 'user',
+    expiryDate: '2025-10-10',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+];
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'שם משתמש או סיסמה שגויים' },
-        { status: 401 }
-      );
+// מחלקה לניהול משתמשים
+class UsersDatabase {
+  private users: User[] = [];
+
+  constructor() {
+    // טעינת משתמשים מ-localStorage או שימוש בברירת מחדל
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('app_users');
+      this.users = stored ? JSON.parse(stored) : DEFAULT_USERS;
+    } else {
+      this.users = DEFAULT_USERS;
     }
+  }
 
-    const validPassword = await verifyPassword(password, user.password);
-    if (!validPassword) {
-      return NextResponse.json(
-        { error: 'שם משתמש או סיסמה שגויים' },
-        { status: 401 }
-      );
+  private save() {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_users', JSON.stringify(this.users));
     }
+  }
 
-    if (new Date(user.expiryDate) < new Date()) {
-      return NextResponse.json(
-        { error: 'המנוי שלך פג תוקף. אנא צור קשר עם המנהל' },
-        { status: 403 }
-      );
+  async findAll(): Promise<User[]> {
+    return this.users.map(u => ({ ...u, password: undefined } as any));
+  }
+
+  async findById(id: string): Promise<User | null> {
+    return this.users.find(u => u.id === id) || null;
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    return this.users.find(u => u.username === username) || null;
+  }
+
+  async create(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User> {
+    const newUser: User = {
+      ...userData,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    this.users.push(newUser);
+    this.save();
+    
+    return { ...newUser, password: undefined } as any;
+  }
+
+  async update(id: string, userData: Partial<User>): Promise<User | null> {
+    const index = this.users.findIndex(u => u.id === id);
+    if (index === -1) return null;
+    
+    this.users[index] = {
+      ...this.users[index],
+      ...userData,
+      updatedAt: new Date().toISOString()
+    };
+    
+    this.save();
+    return { ...this.users[index], password: undefined } as any;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const index = this.users.findIndex(u => u.id === id);
+    if (index === -1) return false;
+    
+    // אל תמחק super-admin
+    if (this.users[index].role === 'super-admin') {
+      return false;
     }
+    
+    this.users.splice(index, 1);
+    this.save();
+    return true;
+  }
 
-    if (!user.isActive) {
-      return NextResponse.json(
-        { error: 'החשבון אינו פעיל' },
-        { status: 403 }
-      );
+  async verifyPassword(username: string, password: string): Promise<User | null> {
+    const user = await this.findByUsername(username);
+    if (!user) return null;
+    
+    const hashedPassword = await hashPassword(password);
+    if (user.password === hashedPassword) {
+      return { ...user, password: undefined } as any;
     }
-
-    const token = generateToken({ 
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-      expiryDate: user.expiryDate
-    });
-
-    const response = NextResponse.json({ 
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        expiryDate: user.expiryDate
-      }
-    });
-
-    response.cookies.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 7,
-      path: '/'
-    });
-
-    return response;
-  } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json(
-      { error: 'שגיאת שרת' },
-      { status: 500 }
-    );
+    
+    return null;
   }
 }
+
+// יצירת instance יחיד
+export const usersDB = new UsersDatabase();
