@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { usersStore } from '@/lib/users-store';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// פונקציה פשוטה ליצירת טוקן
+function generateToken(userId: string, username: string, role: string): string {
+  const payload = {
+    userId,
+    username,
+    role,
+    timestamp: Date.now(),
+    random: crypto.randomBytes(16).toString('hex')
+  };
+  
+  // יצירת טוקן פשוט - בפרודקשן כדאי להשתמש ב-JWT אמיתי
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,16 +55,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // יצירת JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        username: user.username,
-        role: user.role 
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    // יצירת token פשוט
+    const token = generateToken(user.id, user.username, user.role);
 
     // יצירת response עם cookie
     const response = NextResponse.json(
@@ -68,11 +72,26 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
 
-    // הגדרת cookie עם JWT
+    // הגדרת cookie עם הטוקן
     response.cookies.set({
       name: 'auth-token',
       value: token,
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 86400, // 24 hours
+      path: '/'
+    });
+
+    // שמירת פרטי המשתמש ב-cookie נוסף לשימוש בצד הלקוח
+    response.cookies.set({
+      name: 'user-info',
+      value: JSON.stringify({
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }),
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 86400, // 24 hours
