@@ -12,6 +12,7 @@ function LoginForm() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   useEffect(() => {
     if (searchParams?.get('expired') === 'true') {
@@ -39,10 +40,14 @@ function LoginForm() {
         setError(data.error || 'שגיאה בהתחברות');
       }
     } catch (err) {
-      setError('שגיאת רשת');
+      setError('שגיאת רשת - בדוק את החיבור');
     } finally {
       setLoading(false);
     }
+  };
+
+  const quickLogin = (username: string, password: string) => {
+    setCredentials({ username, password });
   };
 
   return (
@@ -93,7 +98,7 @@ function LoginForm() {
                   סיסמה
                 </label>
                 <input
-                  type="password"
+                  type={showPasswords ? "text" : "password"}
                   required
                   value={credentials.password}
                   onChange={(e) => setCredentials({
@@ -124,11 +129,61 @@ function LoginForm() {
           </form>
           
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="text-xs text-gray-500 text-center">
-              <p>משתמשים לדוגמה:</p>
-              <p className="mt-1">מנהל: admin / admin123</p>
-              <p>משתמש: erez / 1234</p>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-semibold text-gray-700">משתמשים לדוגמה:</h3>
+              <button
+                type="button"
+                onClick={() => setShowPasswords(!showPasswords)}
+                className="text-xs text-blue-600 hover:text-blue-800"
+              >
+                {showPasswords ? 'הסתר' : 'הצג'} סיסמאות
+              </button>
             </div>
+            
+            <div className="space-y-2">
+              <div 
+                className="flex justify-between items-center p-2 bg-purple-50 rounded-lg cursor-pointer hover:bg-purple-100 transition"
+                onClick={() => quickLogin('superadmin', 'super123')}
+              >
+                <div>
+                  <span className="text-sm font-medium text-purple-900">🔑 Super Admin</span>
+                  <p className="text-xs text-purple-700">ניהול מלא של המערכת</p>
+                </div>
+                <div className="text-xs text-purple-600 font-mono">
+                  superadmin / {showPasswords ? 'super123' : '•••••••'}
+                </div>
+              </div>
+              
+              <div 
+                className="flex justify-between items-center p-2 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition"
+                onClick={() => quickLogin('admin', 'admin123')}
+              >
+                <div>
+                  <span className="text-sm font-medium text-blue-900">👨‍💼 Admin</span>
+                  <p className="text-xs text-blue-700">מנהל רגיל</p>
+                </div>
+                <div className="text-xs text-blue-600 font-mono">
+                  admin / {showPasswords ? 'admin123' : '••••••••'}
+                </div>
+              </div>
+              
+              <div 
+                className="flex justify-between items-center p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+                onClick={() => quickLogin('erez', '1234')}
+              >
+                <div>
+                  <span className="text-sm font-medium text-gray-900">👤 User</span>
+                  <p className="text-xs text-gray-700">משתמש רגיל (תוקף: 10/10/25)</p>
+                </div>
+                <div className="text-xs text-gray-600 font-mono">
+                  erez / {showPasswords ? '1234' : '••••'}
+                </div>
+              </div>
+            </div>
+            
+            <p className="text-xs text-gray-500 text-center mt-3">
+              לחץ על משתמש למילוי אוטומטי
+            </p>
           </div>
         </div>
       </div>
