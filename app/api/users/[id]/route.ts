@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { hashPassword } from '@/lib/auth';
+import { usersDB, hashPassword } from '@/lib/users-db';
+
+// מגדיר את הראוט כדינמי
+export const dynamic = 'force-dynamic';
 
 export async function PUT(
   req: NextRequest,
@@ -10,26 +12,31 @@ export async function PUT(
     const data = await req.json();
     const updateData: any = {};
 
-    if (data.username) updateData.username = data.username;
+    if (data.username !== undefined) updateData.username = data.username;
     if (data.password) {
       updateData.password = await hashPassword(data.password);
     }
-    if (data.expiryDate) updateData.expiryDate = new Date(data.expiryDate);
-    if (data.role) updateData.role = data.role;
-    if (typeof data.isActive !== 'undefined') updateData.isActive = data.isActive;
+    if (data.expiryDate !== undefined) updateData.expiryDate = data.expiryDate;
+    if (data.role !== undefined) updateData.role = data.role;
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-    const user = await db.users.update(params.id, updateData);
+    const user = await usersDB.update(params.id, updateData);
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'משתמש לא נמצא' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      expiryDate: user.expiryDate,
-      isActive: user.isActive
+      success: true,
+      user
     });
   } catch (error) {
+    console.error('Update user error:', error);
     return NextResponse.json(
-      { error: 'Failed to update user' },
+      { error: 'שגיאה בעדכון משתמש' },
       { status: 500 }
     );
   }
@@ -40,11 +47,20 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    await db.users.delete(params.id);
+    const success = await usersDB.delete(params.id);
+    
+    if (!success) {
+      return NextResponse.json(
+        { error: 'לא ניתן למחוק משתמש זה או שהמשתמש לא קיים' },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error('Delete user error:', error);
     return NextResponse.json(
-      { error: 'Failed to delete user' },
+      { error: 'שגיאה במחיקת משתמש' },
       { status: 500 }
     );
   }
