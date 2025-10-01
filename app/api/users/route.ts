@@ -1,172 +1,127 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
+import { cookies } from 'next/headers';
 
-// Middleware לבדיקת הרשאות - גרסה מתוקנת עם תמיכה במקפים
-async function checkAdminAuth(request: NextRequest): Promise<boolean> {
+// בדיקת הרשאות
+async function checkAuth() {
+  const sessionCookie = cookies().get('session');
+  
+  if (!sessionCookie) {
+    return null;
+  }
+  
   try {
-    // נסיון 1: בדוק header מותאם אישית
-    const userDataHeader = request.headers.get('X-User-Data');
-    if (userDataHeader) {
-      try {
-        const userData = JSON.parse(userDataHeader);
-        console.log('User from header:', userData);
-        // נקה מקפים מה-role לבדיקה
-        const cleanRole = userData.role?.replace('-', '') || '';
-        return cleanRole === 'admin' || cleanRole === 'superadmin';
-      } catch (e) {
-        console.error('Error parsing user header:', e);
-      }
+    const session = JSON.parse(sessionCookie.value);
+    
+    // בדיקת תוקף
+    if (new Date(session.expiresAt) < new Date()) {
+      return null;
     }
-
-    // נסיון 2: בדוק cookie user-info (לא httpOnly)
-    const userInfo = request.cookies.get('user-info');
-    if (userInfo) {
-      try {
-        const userData = JSON.parse(userInfo.value);
-        console.log('User from cookie:', userData);
-        // נקה מקפים מה-role לבדיקה
-        const cleanRole = userData.role?.replace('-', '') || '';
-        return cleanRole === 'admin' || cleanRole === 'superadmin';
-      } catch (e) {
-        console.error('Error parsing user-info cookie:', e);
-      }
-    }
-
-    // נסיון 3: בדוק auth-token
-    const authToken = request.cookies.get('auth-token');
-    if (!authToken) {
-      console.log('No auth-token cookie found');
-      return false;
-    }
-
-    try {
-      // בדיקה בסיסית של הטוקן
-      const tokenData = JSON.parse(
-        Buffer.from(authToken.value, 'base64').toString('utf8')
-      );
-      console.log('Token data:', tokenData);
-      // נקה מקפים מה-role לבדיקה
-      const cleanRole = tokenData.role?.replace('-', '') || '';
-      return cleanRole === 'admin' || cleanRole === 'superadmin';
-    } catch (error) {
-      console.error('Error parsing auth token:', error);
-      return false;
-    }
+    
+    return session;
   } catch (error) {
-    console.error('Auth check error:', error);
-    return false;
+    return null;
   }
 }
 
-// GET - קבלת רשימת משתמשים
-export async function GET(request: NextRequest) {
+// GET /api/users - קבלת כל המשתמשים
+export async function GET() {
   try {
-    console.log('GET /api/users - Checking auth...');
+    const session = await checkAuth();
     
-    // בדיקת הרשאות
-    const isAdmin = await checkAdminAuth(request);
-    console.log('Is admin?', isAdmin);
-    
-    if (!isAdmin) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'אין הרשאה' },
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
+    // רק admin או superadmin יכולים לראות את כל המשתמשים
+    if (session.role !== 'admin' && session.role !== 'superadmin' && session.role !== 'super-admin') {
+      return NextResponse.json(
+        { error: 'Forbidden' },
         { status: 403 }
       );
     }
-
-    // קבלת כל המשתמשים מה-store
-    const users = usersStore.getAll();
-    console.log('Found users:', users.length);
     
-    // הסרת סיסמאות מהתגובה
-    const safeUsers = users.map(user => ({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      expiryDate: user.expiryDate,
-      isActive: user.isActive,
-      createdAt: user.createdAt
-    }));
-
-    return NextResponse.json(safeUsers, { status: 200 });
+    const users = await usersStore.getAll();
+    
+    // הסרת סיסמאות לפני החזרה
+    const sanitizedUsers = users.map(({ password, ...user }) => user);
+    
+    return NextResponse.json(sanitizedUsers);
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json(
-      { error: 'שגיאה בקבלת המשתמשים' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-// POST - יצירת משתמש חדש
-export async function POST(request: NextRequest) {
+// POST /api/users - יצירת משתמש חדש
+export async function POST(request: Request) {
   try {
-    console.log('POST /api/users - Checking auth...');
+    const session = await checkAuth();
     
-    // בדיקת הרשאות
-    const isAdmin = await checkAdminAuth(request);
-    console.log('Is admin?', isAdmin);
-    
-    if (!isAdmin) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'אין הרשאה' },
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
+    // רק admin או superadmin יכולים ליצור משתמשים
+    if (session.role !== 'admin' && session.role !== 'superadmin' && session.role !== 'super-admin') {
+      return NextResponse.json(
+        { error: 'Forbidden' },
         { status: 403 }
       );
     }
-
+    
     const body = await request.json();
-    const { username, password, role, expiryDate } = body;
-    console.log('Creating user:', username);
-
-    // וידוא שכל השדות קיימים
-    if (!username || !password || !role || !expiryDate) {
+    const { username, password, role, expiryDate, isActive } = body;
+    
+    if (!username || !password || !role) {
       return NextResponse.json(
-        { error: 'כל השדות נדרשים' },
+        { error: 'Username, password, and role are required' },
         { status: 400 }
       );
     }
-
-    // בדיקה אם שם המשתמש כבר קיים
-    const existingUser = usersStore.findByUsername(username);
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'שם המשתמש כבר קיים' },
-        { status: 409 }
-      );
+    
+    try {
+      const newUser = await usersStore.create({
+        username,
+        password,
+        role,
+        expiryDate: expiryDate || '',
+        isActive: isActive !== undefined ? isActive : true
+      });
+      
+      if (!newUser) {
+        return NextResponse.json(
+          { error: 'Failed to create user' },
+          { status: 500 }
+        );
+      }
+      
+      // הסרת הסיסמה לפני החזרה
+      const { password: _, ...sanitizedUser } = newUser;
+      
+      return NextResponse.json(sanitizedUser, { status: 201 });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Username already exists') {
+        return NextResponse.json(
+          { error: 'Username already exists' },
+          { status: 409 }
+        );
+      }
+      throw error;
     }
-
-    // יצירת המשתמש החדש
-    const newUser = usersStore.create({
-      username,
-      password,
-      role,
-      expiryDate,
-      isActive: true
-    });
-
-    console.log('User created successfully:', newUser.id);
-
-    // החזרת המשתמש החדש ללא הסיסמה
-    const safeUser = {
-      id: newUser.id,
-      username: newUser.username,
-      role: newUser.role,
-      expiryDate: newUser.expiryDate,
-      isActive: newUser.isActive,
-      createdAt: newUser.createdAt
-    };
-
-    return NextResponse.json(
-      { 
-        message: 'המשתמש נוצר בהצלחה',
-        user: safeUser 
-      },
-      { status: 201 }
-    );
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(
-      { error: 'שגיאה ביצירת המשתמש' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
