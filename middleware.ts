@@ -4,51 +4,82 @@ import type { NextRequest } from 'next/server';
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   
+  // דפים שלא דורשים התחברות
+  const publicPaths = [
+    '/login',
+    '/api/auth/login',
+    '/api/auth/logout',
+    '/api/test-db',
+    '/api/test-connection',
+    '/api/test-supabase-users'
+  ];
+  
+  // בדיקה אם זה דף ציבורי
+  const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+  
+  // אם זה דף ציבורי - תן לעבור
+  if (isPublicPath) {
+    return NextResponse.next();
+  }
+  
   // רשימת דפים מוגנים
-  const protectedPaths = ['/admin'];
+  const protectedPaths = ['/admin', '/'];
   
   // בדיקה אם זה דף מוגן
   const isProtectedPath = protectedPaths.some(path => 
-    pathname.startsWith(path)
+    pathname === path || pathname.startsWith('/admin')
   );
-
-  // אם זה דף מוגן (אבל לא דף ההגדרות עצמו)
-  if (isProtectedPath && pathname !== '/admin/settings') {
-    const token = request.cookies.get('auth-token');
+  
+  // אם זה דף מוגן
+  if (isProtectedPath) {
+    // חפש את ה-session cookie החדש
+    const sessionCookie = request.cookies.get('session');
     
-    // אם אין טוקן - שלח להתחברות
-    if (!token) {
-      console.log('No token found, redirecting to login');
+    // אם אין session - שלח להתחברות
+    if (!sessionCookie) {
+      console.log('No session found, redirecting to login');
       return NextResponse.redirect(new URL('/login', request.url));
     }
-
+    
     try {
-      // פענוח הטוקן
-      const decoded = JSON.parse(
-        Buffer.from(token.value, 'base64').toString()
-      );
+      // פענוח ה-session
+      const session = JSON.parse(sessionCookie.value);
       
       // בדיקת תוקף
-      const expiryDate = new Date(decoded.expiryDate);
-      if (expiryDate < new Date()) {
-        console.log('User subscription expired');
+      const expiresAt = new Date(session.expiresAt);
+      if (expiresAt < new Date()) {
+        console.log('Session expired');
         const response = NextResponse.redirect(new URL('/login?expired=true', request.url));
-        response.cookies.delete('auth-token');
+        response.cookies.delete('session');
         return response;
       }
       
-      console.log('User authenticated:', decoded.username);
+      // בדיקה נוספת לתוקף המשתמש (לא חובה)
+      // אפשר להוסיף כאן בדיקה נוספת מול הדאטאבייס אם רוצים
+      
+      console.log('User authenticated:', session.username);
       return NextResponse.next();
       
     } catch (error) {
-      console.error('Token validation error:', error);
-      return NextResponse.redirect(new URL('/login', request.url));
+      console.error('Session validation error:', error);
+      const response = NextResponse.redirect(new URL('/login', request.url));
+      response.cookies.delete('session');
+      return response;
     }
   }
-
+  
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/admin/:path*']
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.).*)',
+  ]
 };
