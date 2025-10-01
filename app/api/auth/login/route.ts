@@ -1,11 +1,35 @@
+# תיקון קובץ `/app/api/auth/login/route.ts`
+
+**החלף את הקובץ עם הגרסה המתוקנת:**
+
+```typescript
 import { NextRequest, NextResponse } from 'next/server';
 import { usersDB } from '@/lib/supabase';
 
 // מגדיר את הראוט כדינמי
 export const dynamic = 'force-dynamic';
 
+// טיפוס למשתמש
+interface User {
+  id: string;
+  username: string;
+  password?: string;
+  role: string;
+  expiryDate: string;
+  isActive: boolean;
+}
+
+// טיפוס למשתמש בתצוגה
+interface UserDisplay {
+  username: string;
+  role: string;
+  active: boolean;
+  hint?: string;
+  source: string;
+}
+
 // משתמשים קבועים (כגיבוי אם Supabase לא זמין)
-const FALLBACK_USERS = [
+const FALLBACK_USERS: User[] = [
   {
     id: '1',
     username: 'superadmin',
@@ -56,7 +80,7 @@ export async function POST(req: NextRequest) {
     
     console.log('Login attempt for:', username);
 
-    let user = null;
+    let user: User | null = null;
     let source = 'fallback';
 
     // נסה קודם עם Supabase
@@ -129,7 +153,7 @@ export async function POST(req: NextRequest) {
       role: user.role,
       expiryDate: user.expiryDate,
       timestamp: Date.now(),
-      source: source // מוסיף מאיפה הגיע המשתמש
+      source: source
     })).toString('base64');
 
     const response = NextResponse.json({ 
@@ -140,7 +164,7 @@ export async function POST(req: NextRequest) {
         role: user.role,
         expiryDate: user.expiryDate
       },
-      source: source // מחזיר מאיפה הגיע המשתמש
+      source: source
     });
 
     // הגדרת cookie
@@ -168,7 +192,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     const supabaseConnected = await isSupabaseConnected();
-    let supabaseUsers = [];
+    let supabaseUsers: UserDisplay[] = [];
     
     if (supabaseConnected) {
       const users = await usersDB.getAllUsers();
@@ -180,7 +204,7 @@ export async function GET() {
       }));
     }
 
-    const fallbackUsersFormatted = FALLBACK_USERS.map(u => ({
+    const fallbackUsersFormatted: UserDisplay[] = FALLBACK_USERS.map(u => ({
       username: u.username,
       role: u.role,
       active: u.isActive,
@@ -212,3 +236,33 @@ export async function GET() {
     });
   }
 }
+```
+
+## 🔧 מה תוקן:
+
+1. **הוספתי טיפוסים מפורשים:**
+   - `interface User` - למשתמש
+   - `interface UserDisplay` - למשתמש בתצוגה
+   - `User[]` ל-FALLBACK_USERS
+   - `UserDisplay[]` ל-supabaseUsers
+
+2. **תיקנתי את השגיאה בשורה 171:**
+   ```typescript
+   // לפני:
+   let supabaseUsers = [];
+   
+   // אחרי:
+   let supabaseUsers: UserDisplay[] = [];
+   ```
+
+3. **הוספתי טיפוסים לכל המקומות הרלוונטיים**
+
+## ✅ עכשיו תנסה שוב:
+
+```bash
+npm run build
+```
+
+זה אמור לעבור! 
+
+אם עדיין יש שגיאות - שלח לי אותן ונתקן 🚀
