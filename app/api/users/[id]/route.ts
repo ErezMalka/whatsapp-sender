@@ -1,117 +1,224 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { usersStore } from '@/lib/users-store';
 
-export const dynamic = 'force-dynamic';
+// Middleware לבדיקת הרשאות
+async function checkAdminAuth(request: NextRequest): Promise<boolean> {
+  try {
+    const authToken = request.cookies.get('auth-token');
+    if (!authToken) return false;
 
-// אותם משתמשים כמו בקובץ הקודם
-let USERS_DB = [
-  {
-    id: '1',
-    username: 'superadmin',
-    password: 'super123',
-    role: 'super-admin',
-    expiryDate: '2030-12-31',
-    isActive: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '2',
-    username: 'admin',
-    password: 'admin123',
-    role: 'admin',
-    expiryDate: '2030-12-31',
-    isActive: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '3',
-    username: 'erez',
-    password: '1234',
-    role: 'user',
-    expiryDate: '2025-10-10',
-    isActive: true,
-    createdAt: new Date().toISOString()
+    // בדיקה בסיסית של הטוקן
+    const tokenData = JSON.parse(
+      Buffer.from(authToken.value, 'base64').toString('utf8')
+    );
+    
+    // בדיקה שהמשתמש הוא admin או superadmin
+    return tokenData.role === 'admin' || tokenData.role === 'superadmin';
+  } catch (error) {
+    console.error('Auth check error:', error);
+    return false;
   }
-];
+}
 
+// PUT - עדכון משתמש
 export async function PUT(
-  req: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const body = await req.json();
-    const userIndex = USERS_DB.findIndex(u => u.id === params.id);
-    
-    console.log('Updating user:', params.id);
-    
-    if (userIndex === -1) {
+    // בדיקת הרשאות
+    const isAdmin = await checkAdminAuth(request);
+    if (!isAdmin) {
       return NextResponse.json(
-        { error: 'משתמש לא נמצא' },
+        { error: 'אין הרשאה' },
+        { status: 403 }
+      );
+    }
+
+    const { id } = params;
+    const body = await request.json();
+    const { username, password, role, expiryDate, isActive } = body;
+
+    // חיפוש המשתמש
+    const existingUser = usersStore.findById(id);
+    if (!existingUser) {
+      return NextResponse.json(
+        { error: 'המשתמש לא נמצא' },
         { status: 404 }
       );
     }
 
-    // עדכון המשתמש
-    USERS_DB[userIndex] = {
-      ...USERS_DB[userIndex],
-      ...body,
-      id: params.id // וודא שה-ID לא משתנה
-    };
-    
-    console.log('User updated successfully');
+    // בדיקה אם שם המשתמש החדש כבר תפוס (אם השם השתנה)
+    if (username && username !== existingUser.username) {
+      const userWithSameName = usersStore.findByUsername(username);
+      if (userWithSameName) {
+        return NextResponse.json(
+          { error: 'שם המשתמש כבר קיים' },
+          { status: 409 }
+        );
+      }
+    }
 
-    // החזר בלי סיסמה
-    const { password: _, ...userWithoutPassword } = USERS_DB[userIndex];
+    // הכנת נתונים לעדכון
+    const updateData: any = {};
+    if (username !== undefined) updateData.username = username;
+    if (password !== undefined && password !== '') updateData.password = password;
+    if (role !== undefined) updateData.role = role;
+    if (expiryDate !== undefined) updateData.expiryDate = expiryDate;
+    if (isActive !== undefined) updateData.isActive = isActive;
+
+    // עדכון המשתמש
+    const updatedUser = usersStore.update(id, updateData);
     
-    return NextResponse.json({
-      success: true,
-      user: userWithoutPassword
-    });
-  } catch (error) {
-    console.error('Update user error:', error);
+    if (!updatedUser) {
+      return NextResponse.json(
+        { error: 'שגיאה בעדכון המשתמש' },
+        { status: 500 }
+      );
+    }
+
+    // החזרת המשתמש המעודכן ללא הסיסמה
+    const safeUser = {
+      id: updatedUser.id,
+      username: updatedUser.username,
+      role: updatedUser.role,
+      expiryDate: updatedUser.expiryDate,
+      isActive: updatedUser.isActive,
+      createdAt: updatedUser.createdAt
+    };
+
     return NextResponse.json(
-      { error: 'Failed to update user' },
+      { 
+        message: 'המשתמש עודכן בהצלחה',
+        user: safeUser 
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Error updating user:', error);
+    return NextResponse.json(
+      { error: 'שגיאה בעדכון המשתמש' },
       { status: 500 }
     );
   }
 }
 
+// DELETE - מחיקת משתמש
 export async function DELETE(
-  req: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const userIndex = USERS_DB.findIndex(u => u.id === params.id);
-    
-    console.log('Deleting user:', params.id);
-    
-    if (userIndex === -1) {
+    // בדיקת הרשאות
+    const isAdmin = await checkAdminAuth(request);
+    if (!isAdmin) {
       return NextResponse.json(
-        { error: 'משתמש לא נמצא' },
+        { error: 'אין הרשאה' },
+        { status: 403 }
+      );
+    }
+
+    const { id } = params;
+
+    // חיפוש המשתמש
+    const existingUser = usersStore.findById(id);
+    if (!existingUser) {
+      return NextResponse.json(
+        { error: 'המשתמש לא נמצא' },
         { status: 404 }
       );
     }
 
-    // אל תמחק super-admin
-    if (USERS_DB[userIndex].role === 'super-admin') {
-      console.log('Cannot delete super-admin');
+    // מניעת מחיקת superadmin
+    if (existingUser.role === 'superadmin') {
       return NextResponse.json(
-        { error: 'לא ניתן למחוק Super Admin' },
-        { status: 400 }
+        { error: 'לא ניתן למחוק משתמש superadmin' },
+        { status: 403 }
       );
     }
 
+    // בדיקה שלא מוחקים את עצמך
+    const authToken = request.cookies.get('auth-token');
+    if (authToken) {
+      try {
+        const tokenData = JSON.parse(
+          Buffer.from(authToken.value, 'base64').toString('utf8')
+        );
+        if (tokenData.userId === id) {
+          return NextResponse.json(
+            { error: 'לא ניתן למחוק את המשתמש הנוכחי' },
+            { status: 403 }
+          );
+        }
+      } catch (error) {
+        console.error('Token parse error:', error);
+      }
+    }
+
     // מחיקת המשתמש
-    USERS_DB.splice(userIndex, 1);
-    console.log('User deleted successfully');
+    const deleted = usersStore.delete(id);
     
-    return NextResponse.json({ 
-      success: true,
-      message: 'המשתמש נמחק בהצלחה' 
-    });
-  } catch (error) {
-    console.error('Delete user error:', error);
+    if (!deleted) {
+      return NextResponse.json(
+        { error: 'שגיאה במחיקת המשתמש' },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to delete user' },
+      { message: 'המשתמש נמחק בהצלחה' },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return NextResponse.json(
+      { error: 'שגיאה במחיקת המשתמש' },
+      { status: 500 }
+    );
+  }
+}
+
+// GET - קבלת משתמש בודד
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // בדיקת הרשאות
+    const isAdmin = await checkAdminAuth(request);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'אין הרשאה' },
+        { status: 403 }
+      );
+    }
+
+    const { id } = params;
+
+    // חיפוש המשתמש
+    const user = usersStore.findById(id);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'המשתמש לא נמצא' },
+        { status: 404 }
+      );
+    }
+
+    // החזרת המשתמש ללא הסיסמה
+    const safeUser = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      expiryDate: user.expiryDate,
+      isActive: user.isActive,
+      createdAt: user.createdAt
+    };
+
+    return NextResponse.json(safeUser, { status: 200 });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    return NextResponse.json(
+      { error: 'שגיאה בקבלת המשתמש' },
       { status: 500 }
     );
   }
