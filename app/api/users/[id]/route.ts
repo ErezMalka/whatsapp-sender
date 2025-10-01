@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// מגדיר את הראוט כדינמי
 export const dynamic = 'force-dynamic';
 
-// נשתמש באותו DB מהקובץ הקודם
+// אותם משתמשים כמו בקובץ הקודם
 let USERS_DB = [
   {
     id: '1',
@@ -42,6 +41,8 @@ export async function PUT(
     const body = await req.json();
     const userIndex = USERS_DB.findIndex(u => u.id === params.id);
     
+    console.log('Updating user:', params.id);
+    
     if (userIndex === -1) {
       return NextResponse.json(
         { error: 'משתמש לא נמצא' },
@@ -55,8 +56,10 @@ export async function PUT(
       ...body,
       id: params.id // וודא שה-ID לא משתנה
     };
+    
+    console.log('User updated successfully');
 
-    // החזרה בלי סיסמה
+    // החזר בלי סיסמה
     const { password: _, ...userWithoutPassword } = USERS_DB[userIndex];
     
     return NextResponse.json({
@@ -79,6 +82,8 @@ export async function DELETE(
   try {
     const userIndex = USERS_DB.findIndex(u => u.id === params.id);
     
+    console.log('Deleting user:', params.id);
+    
     if (userIndex === -1) {
       return NextResponse.json(
         { error: 'משתמש לא נמצא' },
@@ -88,6 +93,7 @@ export async function DELETE(
 
     // אל תמחק super-admin
     if (USERS_DB[userIndex].role === 'super-admin') {
+      console.log('Cannot delete super-admin');
       return NextResponse.json(
         { error: 'לא ניתן למחוק Super Admin' },
         { status: 400 }
@@ -96,6 +102,7 @@ export async function DELETE(
 
     // מחיקת המשתמש
     USERS_DB.splice(userIndex, 1);
+    console.log('User deleted successfully');
     
     return NextResponse.json({ 
       success: true,
