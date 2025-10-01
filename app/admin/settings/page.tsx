@@ -1,17 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { toast } from '@/components/ui/use-toast';
-import { Loader2, Save, UserPlus, Trash2, Edit2, X, Check, Users, Settings, Database } from 'lucide-react';
 
 interface User {
   id: string;
@@ -25,6 +14,9 @@ interface User {
 export default function AdminSettingsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [activeTab, setActiveTab] = useState('users');
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editedUser, setEditedUser] = useState<Partial<User>>({});
   const [newUser, setNewUser] = useState({
@@ -33,42 +25,43 @@ export default function AdminSettingsPage() {
     role: 'user',
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseKey, setSupabaseKey] = useState('');
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [currentUserInfo, setCurrentUserInfo] = useState<any>(null);
 
   useEffect(() => {
     fetchUsers();
-    loadSupabaseConfig();
     checkCurrentUser();
   }, []);
 
   const checkCurrentUser = () => {
-    // בדיקת המשתמש הנוכחי מ-localStorage
     const userStr = localStorage.getItem('user');
     if (userStr) {
       const user = JSON.parse(userStr);
       setCurrentUserInfo(user);
       console.log('Current user from localStorage:', user);
     }
-
-    // בדיקת cookies
     console.log('Current cookies:', document.cookie);
   };
 
+  const showMessage = (message: string, type: 'success' | 'error') => {
+    if (type === 'success') {
+      setSuccess(message);
+      setError('');
+      setTimeout(() => setSuccess(''), 3000);
+    } else {
+      setError(message);
+      setSuccess('');
+      setTimeout(() => setError(''), 3000);
+    }
+  };
+
   const getAuthHeaders = () => {
-    // נסה לקבל את המידע מ-localStorage אם אין cookies
     const headers: any = {
       'Content-Type': 'application/json',
     };
-
-    // הוסף מידע על המשתמש אם קיים
     const userStr = localStorage.getItem('user');
     if (userStr) {
       headers['X-User-Data'] = userStr;
     }
-
     return headers;
   };
 
@@ -93,11 +86,7 @@ export default function AdminSettingsPage() {
       setUsers(data);
     } catch (error: any) {
       console.error('Error fetching users:', error);
-      toast({
-        title: 'שגיאה',
-        description: error.message || 'שגיאה בטעינת המשתמשים',
-        variant: 'destructive'
-      });
+      showMessage(error.message || 'שגיאה בטעינת המשתמשים', 'error');
     } finally {
       setLoading(false);
     }
@@ -105,11 +94,7 @@ export default function AdminSettingsPage() {
 
   const handleCreateUser = async () => {
     if (!newUser.username || !newUser.password) {
-      toast({
-        title: 'שגיאה',
-        description: 'נא למלא את כל השדות',
-        variant: 'destructive'
-      });
+      showMessage('נא למלא את כל השדות', 'error');
       return;
     }
 
@@ -130,26 +115,17 @@ export default function AdminSettingsPage() {
         throw new Error(error.error || 'Failed to create user');
       }
 
-      toast({
-        title: 'הצלחה',
-        description: 'המשתמש נוצר בהצלחה'
-      });
-
+      showMessage('המשתמש נוצר בהצלחה', 'success');
       setNewUser({
         username: '',
         password: '',
         role: 'user',
         expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
-
       fetchUsers();
     } catch (error: any) {
       console.error('Error creating user:', error);
-      toast({
-        title: 'שגיאה',
-        description: error.message || 'שגיאה ביצירת המשתמש',
-        variant: 'destructive'
-      });
+      showMessage(error.message || 'שגיאה ביצירת המשתמש', 'error');
     } finally {
       setLoading(false);
     }
@@ -158,7 +134,6 @@ export default function AdminSettingsPage() {
   const handleUpdateUser = async (userId: string) => {
     setLoading(true);
     try {
-      console.log('Updating user:', userId, editedUser);
       const response = await fetch(`/api/users/${userId}`, {
         method: 'PUT',
         credentials: 'include',
@@ -171,21 +146,12 @@ export default function AdminSettingsPage() {
         throw new Error(error.error || 'Failed to update user');
       }
 
-      toast({
-        title: 'הצלחה',
-        description: 'המשתמש עודכן בהצלחה'
-      });
-
+      showMessage('המשתמש עודכן בהצלחה', 'success');
       setEditingUser(null);
       setEditedUser({});
       fetchUsers();
     } catch (error: any) {
-      console.error('Error updating user:', error);
-      toast({
-        title: 'שגיאה',
-        description: error.message || 'שגיאה בעדכון המשתמש',
-        variant: 'destructive'
-      });
+      showMessage(error.message || 'שגיאה בעדכון המשתמש', 'error');
     } finally {
       setLoading(false);
     }
@@ -198,7 +164,6 @@ export default function AdminSettingsPage() {
 
     setLoading(true);
     try {
-      console.log('Deleting user:', userId);
       const response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -210,329 +175,316 @@ export default function AdminSettingsPage() {
         throw new Error(error.error || 'Failed to delete user');
       }
 
-      toast({
-        title: 'הצלחה',
-        description: 'המשתמש נמחק בהצלחה'
-      });
-
+      showMessage('המשתמש נמחק בהצלחה', 'success');
       fetchUsers();
     } catch (error: any) {
-      console.error('Error deleting user:', error);
-      toast({
-        title: 'שגיאה',
-        description: error.message || 'שגיאה במחיקת המשתמש',
-        variant: 'destructive'
-      });
+      showMessage(error.message || 'שגיאה במחיקת המשתמש', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadSupabaseConfig = () => {
-    setSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
-    setSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
-  };
-
-  const testConnection = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/test-connection');
-      const data = await response.json();
-      setTestResult(data);
-    } catch (error) {
-      setTestResult({
-        success: false,
-        message: 'Failed to test connection'
-      });
-    } finally {
-      setLoading(false);
-    }
+  const styles = {
+    container: 'container mx-auto p-6 max-w-6xl',
+    header: 'mb-6',
+    title: 'text-3xl font-bold',
+    subtitle: 'text-gray-500',
+    userInfo: 'mt-4 p-3 bg-blue-50 rounded-lg',
+    tabs: 'border-b mb-4',
+    tabButton: (active: boolean) => `px-4 py-2 font-medium ${active ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`,
+    card: 'bg-white rounded-lg shadow-md p-6 mb-4',
+    cardTitle: 'text-xl font-semibold mb-2',
+    cardDescription: 'text-gray-600 mb-4',
+    form: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4',
+    label: 'block text-sm font-medium text-gray-700 mb-1',
+    input: 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
+    select: 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
+    button: 'px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50',
+    buttonOutline: 'px-3 py-1 border border-gray-300 rounded-md hover:bg-gray-50',
+    badge: (type: string) => {
+      const colors: any = {
+        superadmin: 'bg-red-100 text-red-800',
+        admin: 'bg-blue-100 text-blue-800',
+        user: 'bg-gray-100 text-gray-800',
+        active: 'bg-green-100 text-green-800',
+        inactive: 'bg-red-100 text-red-800'
+      };
+      return `inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${colors[type] || colors.user}`;
+    },
+    table: 'min-w-full divide-y divide-gray-200',
+    alert: (type: 'success' | 'error') => `p-4 mb-4 rounded-md ${type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`
   };
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl" dir="rtl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">הגדרות מערכת</h1>
-        <p className="text-gray-500">ניהול משתמשים והגדרות המערכת</p>
+    <div className={styles.container} dir="rtl">
+      <div className={styles.header}>
+        <h1 className={styles.title}>הגדרות מערכת</h1>
+        <p className={styles.subtitle}>ניהול משתמשים והגדרות המערכת</p>
         
-        {/* הצגת מידע על המשתמש הנוכחי */}
         {currentUserInfo && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+          <div className={styles.userInfo}>
             <p className="text-sm">
               מחובר כ: <strong>{currentUserInfo.username}</strong> | 
-              תפקיד: <Badge>{currentUserInfo.role}</Badge>
+              תפקיד: <span className={styles.badge(currentUserInfo.role)}>{currentUserInfo.role}</span>
             </p>
           </div>
         )}
       </div>
 
-      <Tabs defaultValue="users" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="users" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            ניהול משתמשים
-          </TabsTrigger>
-          <TabsTrigger value="database" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            הגדרות מסד נתונים
-          </TabsTrigger>
-        </TabsList>
+      {error && (
+        <div className={styles.alert('error')}>
+          {error}
+        </div>
+      )}
 
-        <TabsContent value="users" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>הוספת משתמש חדש</CardTitle>
-              <CardDescription>צור משתמש חדש במערכת</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div>
-                  <Label htmlFor="username">שם משתמש</Label>
-                  <Input
-                    id="username"
-                    value={newUser.username}
-                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                    placeholder="הזן שם משתמש"
-                    disabled={loading}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="password">סיסמה</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    placeholder="הזן סיסמה"
-                    disabled={loading}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="role">תפקיד</Label>
-                  <Select
-                    value={newUser.role}
-                    onValueChange={(value) => setNewUser({ ...newUser, role: value })}
-                    disabled={loading}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="user">משתמש</SelectItem>
-                      <SelectItem value="admin">מנהל</SelectItem>
-                      <SelectItem value="superadmin">מנהל ראשי</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="expiryDate">תאריך תפוגה</Label>
-                  <Input
-                    id="expiryDate"
-                    type="date"
-                    value={newUser.expiryDate}
-                    onChange={(e) => setNewUser({ ...newUser, expiryDate: e.target.value })}
-                    disabled={loading}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button onClick={handleCreateUser} disabled={loading} className="w-full">
-                    {loading ? (
-                      <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <UserPlus className="ml-2 h-4 w-4" />
-                    )}
-                    הוסף משתמש
-                  </Button>
-                </div>
+      {success && (
+        <div className={styles.alert('success')}>
+          {success}
+        </div>
+      )}
+
+      <div className={styles.tabs}>
+        <button
+          className={styles.tabButton(activeTab === 'users')}
+          onClick={() => setActiveTab('users')}
+        >
+          ניהול משתמשים
+        </button>
+        <button
+          className={styles.tabButton(activeTab === 'database')}
+          onClick={() => setActiveTab('database')}
+        >
+          הגדרות מסד נתונים
+        </button>
+      </div>
+
+      {activeTab === 'users' && (
+        <>
+          <div className={styles.card}>
+            <h2 className={styles.cardTitle}>הוספת משתמש חדש</h2>
+            <p className={styles.cardDescription}>צור משתמש חדש במערכת</p>
+            
+            <div className={styles.form}>
+              <div>
+                <label className={styles.label}>שם משתמש</label>
+                <input
+                  type="text"
+                  className={styles.input}
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  placeholder="הזן שם משתמש"
+                  disabled={loading}
+                />
               </div>
-            </CardContent>
-          </Card>
+              <div>
+                <label className={styles.label}>סיסמה</label>
+                <input
+                  type="password"
+                  className={styles.input}
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  placeholder="הזן סיסמה"
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label className={styles.label}>תפקיד</label>
+                <select
+                  className={styles.select}
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  disabled={loading}
+                >
+                  <option value="user">משתמש</option>
+                  <option value="admin">מנהל</option>
+                  <option value="superadmin">מנהל ראשי</option>
+                </select>
+              </div>
+              <div>
+                <label className={styles.label}>תאריך תפוגה</label>
+                <input
+                  type="date"
+                  className={styles.input}
+                  value={newUser.expiryDate}
+                  onChange={(e) => setNewUser({ ...newUser, expiryDate: e.target.value })}
+                  disabled={loading}
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  className={styles.button}
+                  onClick={handleCreateUser}
+                  disabled={loading}
+                >
+                  {loading ? 'מוסיף...' : 'הוסף משתמש'}
+                </button>
+              </div>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>רשימת משתמשים</CardTitle>
-              <CardDescription>ניהול המשתמשים הקיימים במערכת</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading && users.length === 0 ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>שם משתמש</TableHead>
-                      <TableHead>תפקיד</TableHead>
-                      <TableHead>תאריך תפוגה</TableHead>
-                      <TableHead>סטטוס</TableHead>
-                      <TableHead>תאריך יצירה</TableHead>
-                      <TableHead>פעולות</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+          <div className={styles.card}>
+            <h2 className={styles.cardTitle}>רשימת משתמשים</h2>
+            <p className={styles.cardDescription}>ניהול המשתמשים הקיימים במערכת</p>
+            
+            {loading && users.length === 0 ? (
+              <div className="flex justify-center p-8">
+                <div className="text-gray-500">טוען...</div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className={styles.table}>
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">שם משתמש</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">תפקיד</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">תאריך תפוגה</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">סטטוס</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">תאריך יצירה</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">פעולות</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
                     {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>
+                      <tr key={user.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {editingUser === user.id ? (
-                            <Input
+                            <input
+                              type="text"
+                              className="px-2 py-1 border rounded"
                               value={editedUser.username || user.username}
                               onChange={(e) => setEditedUser({ ...editedUser, username: e.target.value })}
-                              className="w-32"
                             />
                           ) : (
                             <span className="font-medium">{user.username}</span>
                           )}
-                        </TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {editingUser === user.id ? (
-                            <Select
+                            <select
+                              className="px-2 py-1 border rounded"
                               value={editedUser.role || user.role}
-                              onValueChange={(value) => setEditedUser({ ...editedUser, role: value })}
+                              onChange={(e) => setEditedUser({ ...editedUser, role: e.target.value })}
                             >
-                              <SelectTrigger className="w-32">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="user">משתמש</SelectItem>
-                                <SelectItem value="admin">מנהל</SelectItem>
-                                <SelectItem value="superadmin">מנהל ראשי</SelectItem>
-                              </SelectContent>
-                            </Select>
+                              <option value="user">משתמש</option>
+                              <option value="admin">מנהל</option>
+                              <option value="superadmin">מנהל ראשי</option>
+                            </select>
                           ) : (
-                            <Badge variant={user.role === 'superadmin' ? 'destructive' : user.role === 'admin' ? 'default' : 'secondary'}>
-                              {user.role}
-                            </Badge>
+                            <span className={styles.badge(user.role)}>{user.role}</span>
                           )}
-                        </TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {editingUser === user.id ? (
-                            <Input
+                            <input
                               type="date"
+                              className="px-2 py-1 border rounded"
                               value={editedUser.expiryDate?.split('T')[0] || user.expiryDate.split('T')[0]}
                               onChange={(e) => setEditedUser({ ...editedUser, expiryDate: e.target.value })}
-                              className="w-36"
                             />
                           ) : (
                             new Date(user.expiryDate).toLocaleDateString('he-IL')
                           )}
-                        </TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {editingUser === user.id ? (
-                            <Switch
+                            <input
+                              type="checkbox"
                               checked={editedUser.isActive !== undefined ? editedUser.isActive : user.isActive}
-                              onCheckedChange={(checked) => setEditedUser({ ...editedUser, isActive: checked })}
+                              onChange={(e) => setEditedUser({ ...editedUser, isActive: e.target.checked })}
                             />
                           ) : (
-                            <Badge variant={user.isActive ? 'success' : 'destructive'}>
+                            <span className={styles.badge(user.isActive ? 'active' : 'inactive')}>
                               {user.isActive ? 'פעיל' : 'לא פעיל'}
-                            </Badge>
+                            </span>
                           )}
-                        </TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(user.createdAt).toLocaleDateString('he-IL')}
-                        </TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex gap-2">
                             {editingUser === user.id ? (
                               <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                <button
+                                  className={styles.buttonOutline}
                                   onClick={() => handleUpdateUser(user.id)}
                                   disabled={loading}
                                 >
-                                  <Check className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                  ✓
+                                </button>
+                                <button
+                                  className={styles.buttonOutline}
                                   onClick={() => {
                                     setEditingUser(null);
                                     setEditedUser({});
                                   }}
                                   disabled={loading}
                                 >
-                                  <X className="h-4 w-4" />
-                                </Button>
+                                  ✕
+                                </button>
                               </>
                             ) : (
                               <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                <button
+                                  className={styles.buttonOutline}
                                   onClick={() => {
                                     setEditingUser(user.id);
                                     setEditedUser({});
                                   }}
                                   disabled={loading || user.role === 'superadmin'}
                                 >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                  עריכה
+                                </button>
+                                <button
+                                  className={styles.buttonOutline}
                                   onClick={() => handleDeleteUser(user.id)}
                                   disabled={loading || user.role === 'superadmin'}
                                 >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                  מחק
+                                </button>
                               </>
                             )}
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </td>
+                      </tr>
                     ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
-        <TabsContent value="database" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>הגדרות Supabase</CardTitle>
-              <CardDescription>הגדר את החיבור למסד הנתונים</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="supabase-url">Supabase URL</Label>
-                <Input
-                  id="supabase-url"
-                  value={supabaseUrl}
-                  readOnly
-                  placeholder="לא מוגדר"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="supabase-key">Supabase Anon Key</Label>
-                <Input
-                  id="supabase-key"
-                  type="password"
-                  value={supabaseKey}
-                  readOnly
-                  placeholder="לא מוגדר"
-                />
-              </div>
-              <Button onClick={testConnection} disabled={loading}>
-                {loading ? (
-                  <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Settings className="ml-2 h-4 w-4" />
-                )}
-                בדוק חיבור
-              </Button>
-              {testResult && (
-                <div className={`p-4 rounded-lg ${testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                  {testResult.message}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {activeTab === 'database' && (
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>הגדרות Supabase</h2>
+          <p className={styles.cardDescription}>הגדרות החיבור למסד הנתונים</p>
+          
+          <div className="space-y-4">
+            <div>
+              <label className={styles.label}>Supabase URL</label>
+              <input
+                type="text"
+                className={styles.input}
+                value={process.env.NEXT_PUBLIC_SUPABASE_URL || ''}
+                readOnly
+                placeholder="לא מוגדר"
+              />
+            </div>
+            <div>
+              <label className={styles.label}>Supabase Anon Key</label>
+              <input
+                type="password"
+                className={styles.input}
+                value={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}
+                readOnly
+                placeholder="לא מוגדר"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
