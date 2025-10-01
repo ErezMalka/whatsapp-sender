@@ -619,7 +619,7 @@ export default function TemplatesPage() {
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-purple-600">
-                {[...new Set(templates.map(t => t.category))].length}
+                {templates.map(t => t.category).filter((value, index, self) => self.indexOf(value) === index).length}
               </p>
               <p className="text-sm text-gray-600">
                 {language === 'he' ? 'קטגוריות' : 'Categories'}
