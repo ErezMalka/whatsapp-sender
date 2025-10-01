@@ -274,7 +274,7 @@ export default function TemplatesPage() {
     setTimeout(() => setSuccess(null), 5000);
   };
 
-  const categories = {
+  const categories: { [key: string]: string[] } = {
     he: ['ברכות', 'תזכורות', 'מכירות', 'שירות', 'כללי'],
     en: ['Greetings', 'Reminders', 'Sales', 'Service', 'General']
   };
