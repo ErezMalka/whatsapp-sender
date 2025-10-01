@@ -144,7 +144,8 @@ export default function TemplatesPage() {
     if (!matches) return [];
     
     const vars = matches.map(m => m.replace(/{{|}}/g, ''));
-    return [...new Set(vars)]; // Remove duplicates
+    // Remove duplicates using filter instead of Set
+    return vars.filter((value, index, self) => self.indexOf(value) === index);
   };
 
   const handleCreateNew = () => {
