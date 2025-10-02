@@ -150,7 +150,7 @@ export default function LogsPage() {
     
     // Extract browser and OS info
     const browserMatch = userAgent.match(/(Chrome|Firefox|Safari|Edge|Opera)\/[\d.]+/);
-    const osMatch = userAgent.match(/(Windows|Mac OS X|Linux|Android|iOS)[^;)]*)/);
+    const osMatch = userAgent.match(/(Windows|Mac OS X|Linux|Android|iOS)[^;)]*/);
     
     const browser = browserMatch ? browserMatch[1] : 'Unknown';
     const os = osMatch ? osMatch[1] : 'Unknown';
