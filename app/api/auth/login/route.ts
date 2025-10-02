@@ -22,33 +22,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user by username
-    const users = await usersStore.getAllUsers();
-    const user = users.find(u => u.username === username);
+    // Validate user credentials using authenticate
+    const user = usersStore.authenticate(username, password);
     
     if (!user) {
-      // Log failed login attempt - user not found
+      // Log failed login attempt
       await activityLogger.logWithRequest(request, {
         username,
         action: 'login_failed',
-        details: { reason: 'User not found' }
-      });
-
-      return NextResponse.json(
-        { message: 'שם משתמש או סיסמה שגויים' },
-        { status: 401 }
-      );
-    }
-
-    // Verify password
-    const isValidPassword = await usersStore.verifyPassword(username, password);
-    
-    if (!isValidPassword) {
-      // Log failed login attempt - wrong password
-      await activityLogger.logWithRequest(request, {
-        username,
-        action: 'login_failed',
-        details: { reason: 'Invalid password' }
+        details: { reason: 'Invalid credentials' }
       });
 
       return NextResponse.json(
@@ -58,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user account is active
-    if (!user.is_active) {
+    if (!user.isActive) {
       // Log failed login due to inactive account
       await activityLogger.logWithRequest(request, {
         user_id: user.id,
@@ -74,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if account has expired
-    if (user.expiry_date && new Date(user.expiry_date) < new Date()) {
+    if (user.expiryDate && new Date(user.expiryDate) < new Date()) {
       // Log failed login due to expired account
       await activityLogger.logWithRequest(request, {
         user_id: user.id,
@@ -82,7 +64,7 @@ export async function POST(request: NextRequest) {
         action: 'login_failed',
         details: { 
           reason: 'Account expired',
-          expiry_date: user.expiry_date
+          expiry_date: user.expiryDate
         }
       });
 
