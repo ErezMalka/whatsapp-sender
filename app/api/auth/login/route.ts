@@ -23,14 +23,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate user credentials
-    const user = await usersStore.validateUser(username, password);
+    const user = await usersStore.getUserByUsername(username);
     
     if (!user) {
-      // Log failed login attempt
+      // Log failed login attempt - user not found
       await activityLogger.logWithRequest(request, {
         username,
         action: 'login_failed',
-        details: { reason: 'Invalid credentials' }
+        details: { reason: 'User not found' }
+      });
+
+      return NextResponse.json(
+        { message: 'שם משתמש או סיסמה שגויים' },
+        { status: 401 }
+      );
+    }
+
+    // Verify password
+    const isValidPassword = await usersStore.verifyPassword(username, password);
+    
+    if (!isValidPassword) {
+      // Log failed login attempt - wrong password
+      await activityLogger.logWithRequest(request, {
+        username,
+        action: 'login_failed',
+        details: { reason: 'Invalid password' }
       });
 
       return NextResponse.json(
