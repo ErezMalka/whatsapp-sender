@@ -22,8 +22,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate user credentials
-    const user = await usersStore.getUserByUsername(username);
+    // Get user by username
+    const users = await usersStore.getAllUsers();
+    const user = users.find(u => u.username === username);
     
     if (!user) {
       // Log failed login attempt - user not found
