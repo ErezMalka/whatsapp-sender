@@ -52,8 +52,7 @@ export default function CampaignsNewPage() {
     delay: 30,
     target_type: 'all',
     selected_tags: [] as string[],
-    green_api_instance: '',
-    green_api_token: ''
+    use_saved_credentials: true
   });
 
   useEffect(() => {
@@ -63,18 +62,13 @@ export default function CampaignsNewPage() {
   }, []);
 
   const loadGreenApiConfig = () => {
-    // Try to load from environment variables or localStorage
-    const instanceId = process.env.NEXT_PUBLIC_GREEN_API_INSTANCE || 
-                      localStorage.getItem('green_api_instance') || '';
-    const token = process.env.NEXT_PUBLIC_GREEN_API_TOKEN || 
-                 localStorage.getItem('green_api_token') || '';
+    // Load from localStorage (saved from settings page)
+    const instanceId = localStorage.getItem('green_api_instance') || '';
+    const token = localStorage.getItem('green_api_token') || '';
     
-    setGreenApiConfig({ instanceId, token });
-    setFormData(prev => ({
-      ...prev,
-      green_api_instance: instanceId,
-      green_api_token: token
-    }));
+    if (instanceId && token) {
+      setGreenApiConfig({ instanceId, token });
+    }
   };
 
   const loadContacts = async () => {
@@ -177,6 +171,7 @@ export default function CampaignsNewPage() {
         return;
       }
 
+      // Use saved credentials if available
       const campaignData = {
         name: formData.name,
         message: formData.message,
@@ -186,8 +181,8 @@ export default function CampaignsNewPage() {
         failed_count: 0,
         status: 'ready',
         delay: formData.delay * 1000,
-        green_api_instance: formData.green_api_instance || null,
-        green_api_token: formData.green_api_token || null
+        green_api_instance: formData.use_saved_credentials ? greenApiConfig.instanceId : null,
+        green_api_token: formData.use_saved_credentials ? greenApiConfig.token : null
       };
 
       console.log('Creating campaign with:', campaignData);
@@ -205,14 +200,6 @@ export default function CampaignsNewPage() {
 
       setCampaigns([campaign as Campaign, ...campaigns]);
       
-      // Save Green API credentials if provided
-      if (formData.green_api_instance) {
-        localStorage.setItem('green_api_instance', formData.green_api_instance);
-      }
-      if (formData.green_api_token) {
-        localStorage.setItem('green_api_token', formData.green_api_token);
-      }
-      
       // Reset form
       setFormData({
         name: '',
@@ -221,8 +208,7 @@ export default function CampaignsNewPage() {
         delay: 30,
         target_type: 'all',
         selected_tags: [],
-        green_api_instance: greenApiConfig.instanceId,
-        green_api_token: greenApiConfig.token
+        use_saved_credentials: true
       });
 
       alert(`קמפיין נוצר בהצלחה עם ${recipientsList.length} נמענים`);
@@ -281,7 +267,8 @@ export default function CampaignsNewPage() {
       const token = campaign.green_api_token || greenApiConfig.token;
 
       if (!instanceId || !token) {
-        alert('חסרים פרטי Green API. הגדר אותם בהגדרות או בעת יצירת הקמפיין.');
+        alert('חסרים פרטי Green API. עבור להגדרות כדי להגדיר אותם.');
+        window.location.href = '/admin/settings';
         return;
       }
 
@@ -388,6 +375,32 @@ export default function CampaignsNewPage() {
       <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '20px' }}>
         מנהל קמפיינים
       </h1>
+
+      {/* Warning if no Green API credentials */}
+      {(!greenApiConfig.instanceId || !greenApiConfig.token) && (
+        <div style={{
+          padding: '15px',
+          backgroundColor: '#fef3c7',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span>⚠️ לא הוגדרו פרטי Green API. השליחה לא תעבוד ללא הגדרות.</span>
+          <a href="/admin/settings" style={{
+            padding: '5px 15px',
+            backgroundColor: '#f59e0b',
+            color: 'white',
+            borderRadius: '4px',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            הגדר עכשיו
+          </a>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '2px solid #e5e5e5' }}>
@@ -503,10 +516,20 @@ export default function CampaignsNewPage() {
                         }
                       }}
                     />
-                    <span>{tag}</span>
+                    <span style={{ 
+                      padding: '4px 8px', 
+                      backgroundColor: formData.selected_tags.includes(tag) ? '#dcfce7' : '#f3f4f6',
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}>
+                      {tag}
+                    </span>
                   </label>
                 ))}
               </div>
+              <small style={{ color: '#6b7280' }}>
+                {contacts.filter(c => c.tags?.some(t => formData.selected_tags.includes(t))).length} אנשי קשר נבחרו
+              </small>
             </div>
           )}
 
@@ -519,48 +542,48 @@ export default function CampaignsNewPage() {
                 rows={5}
                 value={formData.recipients}
                 onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
-                placeholder="הכנס מספר טלפון בכל שורה"
+                placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
               />
+              <small style={{ color: '#6b7280' }}>
+                {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
+              </small>
             </div>
           )}
 
           {/* Send Rate */}
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קצב שליחה</label>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+              קצב שליחה (שניות בין הודעה להודעה)
+            </label>
             <select
               style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
               value={formData.delay}
               onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) })}
             >
-              <option value="5">5 שניות</option>
+              <option value="5">5 שניות (מהיר - סיכון לחסימה)</option>
               <option value="10">10 שניות</option>
+              <option value="20">20 שניות</option>
               <option value="30">30 שניות (מומלץ)</option>
               <option value="60">דקה</option>
+              <option value="120">2 דקות (איטי ובטוח)</option>
             </select>
+            <small style={{ color: '#6b7280' }}>
+              זמן ההמתנה בין שליחת הודעה להודעה - קצב איטי יותר מפחית סיכון לחסימה
+            </small>
           </div>
 
-          {/* Green API Settings */}
-          <details style={{ marginBottom: '15px' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>
-              הגדרות Green API (אופציונלי)
-            </summary>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input
-                style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
-                type="text"
-                value={formData.green_api_instance}
-                onChange={(e) => setFormData({ ...formData, green_api_instance: e.target.value })}
-                placeholder="Instance ID"
-              />
-              <input
-                style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
-                type="password"
-                value={formData.green_api_token}
-                onChange={(e) => setFormData({ ...formData, green_api_token: e.target.value })}
-                placeholder="Token"
-              />
+          {/* Green API Settings Notice */}
+          {greenApiConfig.instanceId && greenApiConfig.token && (
+            <div style={{ 
+              padding: '10px', 
+              backgroundColor: '#dcfce7', 
+              borderRadius: '4px', 
+              marginBottom: '15px',
+              fontSize: '14px'
+            }}>
+              ✅ משתמש בהגדרות Green API השמורות
             </div>
-          </details>
+          )}
 
           {/* Create Button */}
           <button
@@ -604,11 +627,13 @@ export default function CampaignsNewPage() {
                   backgroundColor: 
                     campaign.status === 'ready' ? '#dcfce7' : 
                     campaign.status === 'running' ? '#fef3c7' :
-                    campaign.status === 'completed' ? '#e5e7eb' : '#dbeafe',
+                    campaign.status === 'completed' ? '#e5e7eb' : 
+                    campaign.status === 'paused' ? '#dbeafe' : '#fee2e2',
                   color: 
                     campaign.status === 'ready' ? '#166534' :
                     campaign.status === 'running' ? '#92400e' :
-                    campaign.status === 'completed' ? '#374151' : '#1e40af'
+                    campaign.status === 'completed' ? '#374151' : 
+                    campaign.status === 'paused' ? '#1e40af' : '#991b1b'
                 }}>
                   {campaign.status === 'ready' ? 'מוכן לשליחה' :
                    campaign.status === 'running' ? 'שולח...' :
@@ -625,6 +650,7 @@ export default function CampaignsNewPage() {
                 <span>📋 נמענים: {campaign.recipients_count}</span>
                 <span>✅ נשלחו: {campaign.sent_count || 0}</span>
                 <span>❌ נכשלו: {campaign.failed_count || 0}</span>
+                <span>⏱️ קצב: {Math.round((campaign.delay || 30000) / 1000)} שניות</span>
               </div>
 
               {/* Progress Bar */}
