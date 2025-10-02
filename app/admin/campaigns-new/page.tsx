@@ -7,10 +7,22 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+interface Campaign {
+  id: string;
+  name: string;
+  message: string;
+  recipients: string[];
+  recipients_count: number;
+  sent_count: number;
+  failed_count: number;
+  status: string;
+  delay: number;
+  created_at: string;
+}
+
 export default function CampaignsNewPage() {
-  const [campaigns, setCampaigns] = useState([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isCreating, setIsCreating] = useState(false);
-  const [logs, setLogs] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
   
   const [formData, setFormData] = useState({
@@ -37,7 +49,7 @@ export default function CampaignsNewPage() {
       }
       
       if (data) {
-        setCampaigns(data);
+        setCampaigns(data as Campaign[]);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -82,7 +94,7 @@ export default function CampaignsNewPage() {
 
       if (error) throw error;
 
-      setCampaigns([campaign, ...campaigns]);
+      setCampaigns([campaign as Campaign, ...campaigns]);
       setFormData({
         name: '',
         message: '',
@@ -93,7 +105,7 @@ export default function CampaignsNewPage() {
       alert(`קמפיין נוצר בהצלחה עם ${recipientsList.length} נמענים`);
       setActiveTab('campaigns');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Create campaign error:', error);
       alert('שגיאה: ' + error.message);
     } finally {
@@ -158,7 +170,7 @@ export default function CampaignsNewPage() {
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>תוכן ההודעה</label>
             <textarea
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical' }}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical', minHeight: '100px' }}
               rows={5}
               value={formData.message}
               onChange={(e) => setFormData({ ...formData, message: e.target.value })}
@@ -169,7 +181,7 @@ export default function CampaignsNewPage() {
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>רשימת נמענים</label>
             <textarea
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical' }}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical', minHeight: '100px' }}
               rows={5}
               value={formData.recipients}
               onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
