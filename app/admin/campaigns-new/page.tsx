@@ -17,9 +17,6 @@ interface Campaign {
   failed_count: number;
   status: string;
   delay: number;
-  scheduled_for?: string;
-  target_type?: string;
-  target_tags?: string[];
   created_at: string;
 }
 
@@ -28,14 +25,12 @@ interface Contact {
   name: string;
   phone: string;
   tags?: string[];
-  group?: string;
 }
 
 export default function CampaignsNewPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [availableGroups, setAvailableGroups] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [activeTab, setActiveTab] = useState('create');
   
@@ -44,10 +39,8 @@ export default function CampaignsNewPage() {
     message: '',
     recipients: '',
     delay: 30,
-    scheduled_for: '',
-    target_type: 'all', // all, manual, tags, groups
-    selected_tags: [] as string[],
-    selected_groups: [] as string[]
+    target_type: 'all', // for UI only - not saved to DB
+    selected_tags: [] as string[]
   });
 
   useEffect(() => {
@@ -69,21 +62,20 @@ export default function CampaignsNewPage() {
       if (data) {
         setContacts(data as Contact[]);
         
-        // Extract unique tags and groups
+        // Extract unique tags
         const tags = new Set<string>();
-        const groups = new Set<string>();
-        
         data.forEach((contact: Contact) => {
           if (contact.tags) {
             contact.tags.forEach(tag => tags.add(tag));
           }
-          if (contact.group) {
-            groups.add(contact.group);
-          }
         });
         
+        // If no tags found, add default ones
+        if (tags.size === 0) {
+          ['לקוחות', 'ספקים', 'עובדים', 'VIP', 'חדשים'].forEach(tag => tags.add(tag));
+        }
+        
         setAvailableTags(Array.from(tags));
-        setAvailableGroups(Array.from(groups));
       }
     } catch (error) {
       console.error('Error:', error);
@@ -124,12 +116,6 @@ export default function CampaignsNewPage() {
         );
         break;
       
-      case 'groups':
-        targetContacts = contacts.filter(contact => 
-          contact.group && formData.selected_groups.includes(contact.group)
-        );
-        break;
-      
       case 'manual':
         const manualNumbers = formData.recipients
           .split('\n')
@@ -164,7 +150,8 @@ export default function CampaignsNewPage() {
         return;
       }
 
-      const campaignData: any = {
+      // Build campaign data with ONLY existing fields
+      const campaignData = {
         name: formData.name,
         message: formData.message,
         recipients: recipientsList,
@@ -175,20 +162,7 @@ export default function CampaignsNewPage() {
         delay: formData.delay * 1000, // Convert to milliseconds
       };
 
-      // Add optional fields if they exist
-      if (formData.scheduled_for) {
-        campaignData.scheduled_for = formData.scheduled_for;
-        campaignData.status = 'scheduled';
-      }
-
-      if (formData.target_type !== 'all') {
-        campaignData.target_type = formData.target_type;
-        if (formData.target_type === 'tags') {
-          campaignData.target_tags = formData.selected_tags;
-        } else if (formData.target_type === 'groups') {
-          campaignData.target_groups = formData.selected_groups;
-        }
-      }
+      console.log('Creating campaign with:', campaignData);
 
       const { data: campaign, error } = await supabase
         .from('campaigns')
@@ -196,7 +170,10 @@ export default function CampaignsNewPage() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       setCampaigns([campaign as Campaign, ...campaigns]);
       
@@ -206,10 +183,8 @@ export default function CampaignsNewPage() {
         message: '',
         recipients: '',
         delay: 30,
-        scheduled_for: '',
         target_type: 'all',
-        selected_tags: [],
-        selected_groups: []
+        selected_tags: []
       });
 
       alert(`קמפיין נוצר בהצלחה עם ${recipientsList.length} נמענים`);
@@ -226,9 +201,10 @@ export default function CampaignsNewPage() {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }} dir="rtl">
       <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '20px' }}>
-        מנהל קמפיינים מתקדם
+        מנהל קמפיינים
       </h1>
 
+      {/* Tabs */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '2px solid #e5e5e5' }}>
         <button
           style={{
@@ -262,10 +238,12 @@ export default function CampaignsNewPage() {
         </button>
       </div>
 
+      {/* Create Tab */}
       {activeTab === 'create' && (
         <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <h2 style={{ fontSize: '20px', marginBottom: '20px' }}>יצירת קמפיין חדש</h2>
           
+          {/* Campaign Name */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>שם הקמפיין</label>
             <input
@@ -277,6 +255,7 @@ export default function CampaignsNewPage() {
             />
           </div>
 
+          {/* Message */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>תוכן ההודעה</label>
             <textarea
@@ -289,7 +268,7 @@ export default function CampaignsNewPage() {
             <small style={{ color: '#6b7280' }}>{formData.message.length} תווים</small>
           </div>
 
-          {/* Target Type Selection */}
+          {/* Target Type */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קהל יעד</label>
             <select
@@ -299,18 +278,17 @@ export default function CampaignsNewPage() {
             >
               <option value="all">כל אנשי הקשר ({contacts.length})</option>
               <option value="tags">לפי תגיות</option>
-              <option value="groups">לפי קבוצות</option>
               <option value="manual">הזנה ידנית</option>
             </select>
           </div>
 
           {/* Tags Selection */}
-          {formData.target_type === 'tags' && availableTags.length > 0 && (
+          {formData.target_type === 'tags' && (
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>בחר תגיות</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}>
                 {availableTags.map(tag => (
-                  <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={formData.selected_tags.includes(tag)}
@@ -322,40 +300,19 @@ export default function CampaignsNewPage() {
                         }
                       }}
                     />
-                    <span>{tag}</span>
+                    <span style={{ 
+                      padding: '4px 8px', 
+                      backgroundColor: formData.selected_tags.includes(tag) ? '#dcfce7' : '#f3f4f6',
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}>
+                      {tag}
+                    </span>
                   </label>
                 ))}
               </div>
               <small style={{ color: '#6b7280' }}>
                 {contacts.filter(c => c.tags?.some(t => formData.selected_tags.includes(t))).length} אנשי קשר נבחרו
-              </small>
-            </div>
-          )}
-
-          {/* Groups Selection */}
-          {formData.target_type === 'groups' && availableGroups.length > 0 && (
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>בחר קבוצות</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}>
-                {availableGroups.map(group => (
-                  <label key={group} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.selected_groups.includes(group)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setFormData({ ...formData, selected_groups: [...formData.selected_groups, group] });
-                        } else {
-                          setFormData({ ...formData, selected_groups: formData.selected_groups.filter(g => g !== group) });
-                        }
-                      }}
-                    />
-                    <span>{group}</span>
-                  </label>
-                ))}
-              </div>
-              <small style={{ color: '#6b7280' }}>
-                {contacts.filter(c => c.group && formData.selected_groups.includes(c.group)).length} אנשי קשר נבחרו
               </small>
             </div>
           )}
@@ -369,7 +326,7 @@ export default function CampaignsNewPage() {
                 rows={5}
                 value={formData.recipients}
                 onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
-                placeholder="הכנס מספר טלפון בכל שורה"
+                placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
               />
               <small style={{ color: '#6b7280' }}>
                 {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
@@ -377,32 +334,29 @@ export default function CampaignsNewPage() {
             </div>
           )}
 
-          {/* Delay */}
+          {/* Send Rate */}
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קצב שליחה (שניות בין הודעה להודעה)</label>
-            <input
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+              קצב שליחה (שניות בין הודעה להודעה)
+            </label>
+            <select
               style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
-              type="number"
-              min="1"
-              max="300"
               value={formData.delay}
-              onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) || 30 })}
-            />
-            <small style={{ color: '#6b7280' }}>המתנה של {formData.delay} שניות בין כל הודעה</small>
+              onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) })}
+            >
+              <option value="5">5 שניות (מהיר - סיכון לחסימה)</option>
+              <option value="10">10 שניות</option>
+              <option value="20">20 שניות</option>
+              <option value="30">30 שניות (מומלץ)</option>
+              <option value="60">דקה</option>
+              <option value="120">2 דקות (איטי ובטוח)</option>
+            </select>
+            <small style={{ color: '#6b7280' }}>
+              זמן ההמתנה בין שליחת הודעה להודעה - קצב איטי יותר מפחית סיכון לחסימה
+            </small>
           </div>
 
-          {/* Schedule */}
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>תזמון שליחה (אופציונלי)</label>
-            <input
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
-              type="datetime-local"
-              value={formData.scheduled_for}
-              onChange={(e) => setFormData({ ...formData, scheduled_for: e.target.value })}
-            />
-            <small style={{ color: '#6b7280' }}>השאר ריק לשליחה מיידית</small>
-          </div>
-
+          {/* Create Button */}
           <button
             style={{
               width: '100%',
@@ -419,11 +373,12 @@ export default function CampaignsNewPage() {
             onClick={createCampaign}
             disabled={isCreating}
           >
-            {isCreating ? 'יוצר קמפיין...' : 'צור קמפיין'}
+            {isCreating ? '⏳ יוצר קמפיין...' : '📤 צור קמפיין'}
           </button>
         </div>
       )}
 
+      {/* Campaigns List */}
       {activeTab === 'campaigns' && (
         <div>
           {campaigns.map(campaign => (
@@ -434,27 +389,24 @@ export default function CampaignsNewPage() {
                   <p style={{ color: '#6b7280', fontSize: '12px' }}>
                     נוצר: {new Date(campaign.created_at).toLocaleString('he-IL')}
                   </p>
-                  {campaign.scheduled_for && (
-                    <p style={{ color: '#3b82f6', fontSize: '12px' }}>
-                      מתוזמן ל: {new Date(campaign.scheduled_for).toLocaleString('he-IL')}
-                    </p>
-                  )}
                 </div>
                 <span style={{
                   padding: '4px 8px',
                   borderRadius: '4px',
                   fontSize: '12px',
                   fontWeight: 'bold',
-                  backgroundColor: campaign.status === 'ready' ? '#dcfce7' : 
-                                 campaign.status === 'scheduled' ? '#dbeafe' :
-                                 campaign.status === 'completed' ? '#f3f4f6' : '#fef3c7',
-                  color: campaign.status === 'ready' ? '#166534' :
-                         campaign.status === 'scheduled' ? '#1e40af' :
-                         campaign.status === 'completed' ? '#374151' : '#92400e'
+                  backgroundColor: 
+                    campaign.status === 'ready' ? '#dcfce7' : 
+                    campaign.status === 'completed' ? '#f3f4f6' : 
+                    campaign.status === 'running' ? '#dbeafe' : '#fef3c7',
+                  color: 
+                    campaign.status === 'ready' ? '#166534' :
+                    campaign.status === 'completed' ? '#374151' :
+                    campaign.status === 'running' ? '#1e40af' : '#92400e'
                 }}>
                   {campaign.status === 'ready' ? 'מוכן' :
-                   campaign.status === 'scheduled' ? 'מתוזמן' :
-                   campaign.status === 'completed' ? 'הושלם' : campaign.status}
+                   campaign.status === 'completed' ? 'הושלם' :
+                   campaign.status === 'running' ? 'רץ' : campaign.status}
                 </span>
               </div>
               
@@ -468,12 +420,31 @@ export default function CampaignsNewPage() {
                 <span>❌ נכשלו: {campaign.failed_count || 0}</span>
                 <span>⏱️ קצב: {Math.round((campaign.delay || 2000) / 1000)} שניות</span>
               </div>
+
+              {/* Progress Bar */}
+              {campaign.sent_count > 0 && (
+                <div style={{ marginTop: '15px' }}>
+                  <div style={{ width: '100%', backgroundColor: '#e5e7eb', borderRadius: '4px', height: '8px' }}>
+                    <div style={{
+                      width: `${(campaign.sent_count / campaign.recipients_count) * 100}%`,
+                      backgroundColor: '#10b981',
+                      height: '100%',
+                      borderRadius: '4px',
+                      transition: 'width 0.3s'
+                    }}></div>
+                  </div>
+                  <small style={{ color: '#6b7280' }}>
+                    {Math.round((campaign.sent_count / campaign.recipients_count) * 100)}% הושלם
+                  </small>
+                </div>
+              )}
             </div>
           ))}
 
           {campaigns.length === 0 && (
             <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '40px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center', color: '#6b7280' }}>
-              אין קמפיינים. צור קמפיין חדש כדי להתחיל.
+              <p style={{ fontSize: '18px', marginBottom: '10px' }}>אין קמפיינים עדיין</p>
+              <p>צור קמפיין חדש כדי להתחיל לשלוח הודעות</p>
             </div>
           )}
         </div>
