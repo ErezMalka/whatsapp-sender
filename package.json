@@ -11,16 +11,15 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "bcryptjs": "^2.4.3",
+    "cookie": "^0.6.0",
     "next": "14.0.4",
-    "papaparse": "^5.4.1",
     "react": "^18",
-    "react-dom": "^18",
-    "xlsx": "^0.18.5"
+    "react-dom": "^18"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/cookie": "^0.6.0",
     "@types/node": "^20",
-    "@types/papaparse": "^5.3.14",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
