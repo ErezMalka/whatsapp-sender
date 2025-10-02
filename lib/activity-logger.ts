@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+// Check if Supabase is configured
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+
+// Initialize Supabase client only if credentials exist
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 export type LogAction = 
   | 'login'
@@ -40,6 +43,12 @@ class ActivityLogger {
    */
   async log(entry: LogEntry): Promise<void> {
     try {
+      // If Supabase is not configured, just log to console
+      if (!supabase) {
+        console.log('[Activity Log]', entry);
+        return;
+      }
+
       const { error } = await supabase
         .from('activity_logs')
         .insert([{
@@ -109,6 +118,12 @@ class ActivityLogger {
     to_date?: string;
   }): Promise<{ logs: ActivityLog[]; total: number }> {
     try {
+      // If Supabase is not configured, return empty logs
+      if (!supabase) {
+        console.log('[Activity Logger] Supabase not configured');
+        return { logs: [], total: 0 };
+      }
+
       let query = supabase
         .from('activity_logs')
         .select('*', { count: 'exact' });
@@ -189,6 +204,12 @@ class ActivityLogger {
    */
   async clearOldLogs(days: number = 90): Promise<void> {
     try {
+      // If Supabase is not configured, skip
+      if (!supabase) {
+        console.log('[Activity Logger] Supabase not configured');
+        return;
+      }
+
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
