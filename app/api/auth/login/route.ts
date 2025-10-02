@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serialize } from 'cookie';
-import { userStore } from '@/lib/users-store';
+import { cookies } from 'next/headers';
+import { usersStore } from '@/lib/users-store';
 import { activityLogger } from '@/lib/activity-logger';
 
 export async function POST(request: NextRequest) {
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate user credentials
-    const user = await userStore.validateUser(username, password);
+    const user = await usersStore.validateUser(username, password);
     
     if (!user) {
       // Log failed login attempt
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
       loginTime: new Date().toISOString()
     };
 
-    // Create session cookie
-    const sessionCookie = serialize('session', JSON.stringify(sessionData), {
+    // Set session cookie using Next.js cookies
+    cookies().set('session', JSON.stringify(sessionData), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -102,8 +102,8 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Return success response with cookie
-    const response = NextResponse.json(
+    // Return success response
+    return NextResponse.json(
       { 
         message: 'התחברות הצליחה',
         user: {
@@ -114,10 +114,6 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
-
-    response.headers.set('Set-Cookie', sessionCookie);
-    
-    return response;
   } catch (error) {
     console.error('Login error:', error);
     
@@ -161,14 +157,8 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Clear session cookie
-    const clearCookie = serialize('session', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/'
-    });
+    // Clear session cookie using Next.js cookies
+    cookies().delete('session');
 
     // Log logout
     await activityLogger.logWithRequest(request, {
@@ -180,14 +170,10 @@ export async function DELETE(request: NextRequest) {
       }
     });
 
-    const response = NextResponse.json(
+    return NextResponse.json(
       { message: 'יציאה הצליחה' },
       { status: 200 }
     );
-
-    response.headers.set('Set-Cookie', clearCookie);
-    
-    return response;
   } catch (error) {
     console.error('Logout error:', error);
     
