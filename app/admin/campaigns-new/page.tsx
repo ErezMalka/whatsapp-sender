@@ -17,6 +17,8 @@ interface Campaign {
   failed_count: number;
   status: string;
   delay: number;
+  green_api_instance?: string;
+  green_api_token?: string;
   created_at: string;
 }
 
@@ -32,21 +34,48 @@ export default function CampaignsNewPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendingCampaignId, setSendingCampaignId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('create');
+  const [logs, setLogs] = useState<string[]>([]);
+  
+  // Green API Credentials
+  const [greenApiConfig, setGreenApiConfig] = useState({
+    instanceId: '',
+    token: ''
+  });
   
   const [formData, setFormData] = useState({
     name: '',
     message: '',
     recipients: '',
     delay: 30,
-    target_type: 'all', // for UI only - not saved to DB
-    selected_tags: [] as string[]
+    target_type: 'all',
+    selected_tags: [] as string[],
+    green_api_instance: '',
+    green_api_token: ''
   });
 
   useEffect(() => {
     loadCampaigns();
     loadContacts();
+    loadGreenApiConfig();
   }, []);
+
+  const loadGreenApiConfig = () => {
+    // Try to load from environment variables or localStorage
+    const instanceId = process.env.NEXT_PUBLIC_GREEN_API_INSTANCE || 
+                      localStorage.getItem('green_api_instance') || '';
+    const token = process.env.NEXT_PUBLIC_GREEN_API_TOKEN || 
+                 localStorage.getItem('green_api_token') || '';
+    
+    setGreenApiConfig({ instanceId, token });
+    setFormData(prev => ({
+      ...prev,
+      green_api_instance: instanceId,
+      green_api_token: token
+    }));
+  };
 
   const loadContacts = async () => {
     try {
@@ -62,7 +91,6 @@ export default function CampaignsNewPage() {
       if (data) {
         setContacts(data as Contact[]);
         
-        // Extract unique tags
         const tags = new Set<string>();
         data.forEach((contact: Contact) => {
           if (contact.tags) {
@@ -70,7 +98,6 @@ export default function CampaignsNewPage() {
           }
         });
         
-        // If no tags found, add default ones
         if (tags.size === 0) {
           ['לקוחות', 'ספקים', 'עובדים', 'VIP', 'חדשים'].forEach(tag => tags.add(tag));
         }
@@ -150,7 +177,6 @@ export default function CampaignsNewPage() {
         return;
       }
 
-      // Build campaign data with ONLY existing fields
       const campaignData = {
         name: formData.name,
         message: formData.message,
@@ -159,7 +185,9 @@ export default function CampaignsNewPage() {
         sent_count: 0,
         failed_count: 0,
         status: 'ready',
-        delay: formData.delay * 1000, // Convert to milliseconds
+        delay: formData.delay * 1000,
+        green_api_instance: formData.green_api_instance || null,
+        green_api_token: formData.green_api_token || null
       };
 
       console.log('Creating campaign with:', campaignData);
@@ -177,6 +205,14 @@ export default function CampaignsNewPage() {
 
       setCampaigns([campaign as Campaign, ...campaigns]);
       
+      // Save Green API credentials if provided
+      if (formData.green_api_instance) {
+        localStorage.setItem('green_api_instance', formData.green_api_instance);
+      }
+      if (formData.green_api_token) {
+        localStorage.setItem('green_api_token', formData.green_api_token);
+      }
+      
       // Reset form
       setFormData({
         name: '',
@@ -184,7 +220,9 @@ export default function CampaignsNewPage() {
         recipients: '',
         delay: 30,
         target_type: 'all',
-        selected_tags: []
+        selected_tags: [],
+        green_api_instance: greenApiConfig.instanceId,
+        green_api_token: greenApiConfig.token
       });
 
       alert(`קמפיין נוצר בהצלחה עם ${recipientsList.length} נמענים`);
@@ -196,6 +234,153 @@ export default function CampaignsNewPage() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  // Function to send WhatsApp message via Green API
+  const sendWhatsAppMessage = async (phone: string, message: string, instanceId: string, token: string) => {
+    try {
+      // Format phone number
+      let formattedPhone = phone.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '972' + formattedPhone.substring(1);
+      }
+      if (!formattedPhone.startsWith('972')) {
+        formattedPhone = '972' + formattedPhone;
+      }
+
+      const apiUrl = `https://api.green-api.com/waInstance${instanceId}/sendMessage/${token}`;
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chatId: `${formattedPhone}@c.us`,
+          message: message
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return { success: true, messageId: data.idMessage };
+      
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Function to start sending campaign
+  const startCampaign = async (campaign: Campaign) => {
+    try {
+      const instanceId = campaign.green_api_instance || greenApiConfig.instanceId;
+      const token = campaign.green_api_token || greenApiConfig.token;
+
+      if (!instanceId || !token) {
+        alert('חסרים פרטי Green API. הגדר אותם בהגדרות או בעת יצירת הקמפיין.');
+        return;
+      }
+
+      if (!confirm(`להתחיל לשלוח ${campaign.recipients_count} הודעות?`)) {
+        return;
+      }
+
+      setIsSending(true);
+      setSendingCampaignId(campaign.id);
+      setLogs([]);
+      setActiveTab('campaigns');
+
+      // Update campaign status to running
+      await supabase
+        .from('campaigns')
+        .update({ status: 'running' })
+        .eq('id', campaign.id);
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (let i = 0; i < campaign.recipients.length; i++) {
+        const recipient = campaign.recipients[i];
+        
+        // Check if campaign was paused
+        const { data: currentCampaign } = await supabase
+          .from('campaigns')
+          .select('status')
+          .eq('id', campaign.id)
+          .single();
+
+        if (currentCampaign?.status === 'paused') {
+          setLogs(prev => [...prev, 'הקמפיין הושהה']);
+          break;
+        }
+
+        setLogs(prev => [...prev, `שולח הודעה ${i + 1}/${campaign.recipients_count} ל-${recipient.phone}`]);
+
+        const result = await sendWhatsAppMessage(
+          recipient.phone,
+          campaign.message,
+          instanceId,
+          token
+        );
+
+        if (result.success) {
+          sentCount++;
+          setLogs(prev => [...prev, `✅ נשלח בהצלחה ל-${recipient.phone}`]);
+        } else {
+          failedCount++;
+          setLogs(prev => [...prev, `❌ נכשל: ${recipient.phone} - ${result.error}`]);
+        }
+
+        // Update campaign progress
+        await supabase
+          .from('campaigns')
+          .update({
+            sent_count: sentCount,
+            failed_count: failedCount
+          })
+          .eq('id', campaign.id);
+
+        // Reload campaigns to show updated progress
+        loadCampaigns();
+
+        // Wait between messages
+        if (i < campaign.recipients.length - 1) {
+          const delaySeconds = (campaign.delay || 30000) / 1000;
+          setLogs(prev => [...prev, `⏳ ממתין ${delaySeconds} שניות...`]);
+          await new Promise(resolve => setTimeout(resolve, campaign.delay || 30000));
+        }
+      }
+
+      // Update campaign status to completed
+      await supabase
+        .from('campaigns')
+        .update({ status: 'completed' })
+        .eq('id', campaign.id);
+
+      setLogs(prev => [...prev, `✅ הקמפיין הושלם! נשלחו ${sentCount}, נכשלו ${failedCount}`]);
+      loadCampaigns();
+
+    } catch (error: any) {
+      console.error('Error starting campaign:', error);
+      alert('שגיאה בשליחת הקמפיין: ' + error.message);
+    } finally {
+      setIsSending(false);
+      setSendingCampaignId(null);
+    }
+  };
+
+  // Function to pause campaign
+  const pauseCampaign = async (campaignId: string) => {
+    await supabase
+      .from('campaigns')
+      .update({ status: 'paused' })
+      .eq('id', campaignId);
+    
+    loadCampaigns();
   };
 
   return (
@@ -237,6 +422,24 @@ export default function CampaignsNewPage() {
           קמפיינים ({campaigns.length})
         </button>
       </div>
+
+      {/* Logs Display */}
+      {logs.length > 0 && (
+        <div style={{ 
+          backgroundColor: '#f9fafb', 
+          borderRadius: '8px', 
+          padding: '15px', 
+          marginBottom: '20px',
+          maxHeight: '200px',
+          overflowY: 'auto',
+          fontSize: '12px',
+          fontFamily: 'monospace'
+        }}>
+          {logs.map((log, index) => (
+            <div key={index} style={{ marginBottom: '5px' }}>{log}</div>
+          ))}
+        </div>
+      )}
 
       {/* Create Tab */}
       {activeTab === 'create' && (
@@ -300,20 +503,10 @@ export default function CampaignsNewPage() {
                         }
                       }}
                     />
-                    <span style={{ 
-                      padding: '4px 8px', 
-                      backgroundColor: formData.selected_tags.includes(tag) ? '#dcfce7' : '#f3f4f6',
-                      borderRadius: '4px',
-                      fontSize: '14px'
-                    }}>
-                      {tag}
-                    </span>
+                    <span>{tag}</span>
                   </label>
                 ))}
               </div>
-              <small style={{ color: '#6b7280' }}>
-                {contacts.filter(c => c.tags?.some(t => formData.selected_tags.includes(t))).length} אנשי קשר נבחרו
-              </small>
             </div>
           )}
 
@@ -326,35 +519,48 @@ export default function CampaignsNewPage() {
                 rows={5}
                 value={formData.recipients}
                 onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
-                placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
+                placeholder="הכנס מספר טלפון בכל שורה"
               />
-              <small style={{ color: '#6b7280' }}>
-                {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
-              </small>
             </div>
           )}
 
           {/* Send Rate */}
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              קצב שליחה (שניות בין הודעה להודעה)
-            </label>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קצב שליחה</label>
             <select
               style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
               value={formData.delay}
               onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) })}
             >
-              <option value="5">5 שניות (מהיר - סיכון לחסימה)</option>
+              <option value="5">5 שניות</option>
               <option value="10">10 שניות</option>
-              <option value="20">20 שניות</option>
               <option value="30">30 שניות (מומלץ)</option>
               <option value="60">דקה</option>
-              <option value="120">2 דקות (איטי ובטוח)</option>
             </select>
-            <small style={{ color: '#6b7280' }}>
-              זמן ההמתנה בין שליחת הודעה להודעה - קצב איטי יותר מפחית סיכון לחסימה
-            </small>
           </div>
+
+          {/* Green API Settings */}
+          <details style={{ marginBottom: '15px' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>
+              הגדרות Green API (אופציונלי)
+            </summary>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
+                type="text"
+                value={formData.green_api_instance}
+                onChange={(e) => setFormData({ ...formData, green_api_instance: e.target.value })}
+                placeholder="Instance ID"
+              />
+              <input
+                style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
+                type="password"
+                value={formData.green_api_token}
+                onChange={(e) => setFormData({ ...formData, green_api_token: e.target.value })}
+                placeholder="Token"
+              />
+            </div>
+          </details>
 
           {/* Create Button */}
           <button
@@ -397,16 +603,17 @@ export default function CampaignsNewPage() {
                   fontWeight: 'bold',
                   backgroundColor: 
                     campaign.status === 'ready' ? '#dcfce7' : 
-                    campaign.status === 'completed' ? '#f3f4f6' : 
-                    campaign.status === 'running' ? '#dbeafe' : '#fef3c7',
+                    campaign.status === 'running' ? '#fef3c7' :
+                    campaign.status === 'completed' ? '#e5e7eb' : '#dbeafe',
                   color: 
                     campaign.status === 'ready' ? '#166534' :
-                    campaign.status === 'completed' ? '#374151' :
-                    campaign.status === 'running' ? '#1e40af' : '#92400e'
+                    campaign.status === 'running' ? '#92400e' :
+                    campaign.status === 'completed' ? '#374151' : '#1e40af'
                 }}>
-                  {campaign.status === 'ready' ? 'מוכן' :
-                   campaign.status === 'completed' ? 'הושלם' :
-                   campaign.status === 'running' ? 'רץ' : campaign.status}
+                  {campaign.status === 'ready' ? 'מוכן לשליחה' :
+                   campaign.status === 'running' ? 'שולח...' :
+                   campaign.status === 'paused' ? 'מושהה' :
+                   campaign.status === 'completed' ? 'הושלם' : campaign.status}
                 </span>
               </div>
               
@@ -418,11 +625,10 @@ export default function CampaignsNewPage() {
                 <span>📋 נמענים: {campaign.recipients_count}</span>
                 <span>✅ נשלחו: {campaign.sent_count || 0}</span>
                 <span>❌ נכשלו: {campaign.failed_count || 0}</span>
-                <span>⏱️ קצב: {Math.round((campaign.delay || 2000) / 1000)} שניות</span>
               </div>
 
               {/* Progress Bar */}
-              {campaign.sent_count > 0 && (
+              {(campaign.sent_count > 0 || campaign.status === 'running') && (
                 <div style={{ marginTop: '15px' }}>
                   <div style={{ width: '100%', backgroundColor: '#e5e7eb', borderRadius: '4px', height: '8px' }}>
                     <div style={{
@@ -438,6 +644,64 @@ export default function CampaignsNewPage() {
                   </small>
                 </div>
               )}
+
+              {/* Action Buttons */}
+              <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                {campaign.status === 'ready' && (
+                  <button
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      cursor: isSending ? 'not-allowed' : 'pointer',
+                      opacity: isSending ? 0.5 : 1,
+                      fontWeight: 'bold'
+                    }}
+                    onClick={() => startCampaign(campaign)}
+                    disabled={isSending}
+                  >
+                    ▶️ התחל שליחה
+                  </button>
+                )}
+                
+                {campaign.status === 'running' && sendingCampaignId === campaign.id && (
+                  <button
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                    onClick={() => pauseCampaign(campaign.id)}
+                  >
+                    ⏸️ השהה
+                  </button>
+                )}
+
+                {campaign.status === 'paused' && (
+                  <button
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      cursor: isSending ? 'not-allowed' : 'pointer',
+                      opacity: isSending ? 0.5 : 1,
+                      fontWeight: 'bold'
+                    }}
+                    onClick={() => startCampaign(campaign)}
+                    disabled={isSending}
+                  >
+                    ▶️ המשך שליחה
+                  </button>
+                )}
+              </div>
             </div>
           ))}
 
