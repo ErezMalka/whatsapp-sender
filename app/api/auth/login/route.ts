@@ -8,177 +8,83 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { username, password } = body;
 
+    // Validate input
     if (!username || !password) {
-      // Log failed attempt due to missing credentials
-      await activityLogger.logWithRequest(request, {
-        username: username || 'unknown',
-        action: 'login_failed',
-        details: { reason: 'Missing credentials' }
-      });
-
       return NextResponse.json(
-        { message: 'נדרש שם משתמש וסיסמה' },
+        { error: 'Username and password are required' },
         { status: 400 }
       );
     }
 
-    // Validate user credentials using authenticate
-    const user = usersStore.authenticate(username, password);
+    // Log login attempt
+    activityLogger.log({
+      action: 'login_attempt',
+      details: `Login attempt for user: ${username}`,
+      timestamp: new Date().toISOString()
+    });
+
+    // Validate user credentials using validateCredentials (not authenticate)
+    const user = usersStore.validateCredentials(username, password);
     
     if (!user) {
       // Log failed login attempt
-      await activityLogger.logWithRequest(request, {
-        username,
+      activityLogger.log({
         action: 'login_failed',
-        details: { reason: 'Invalid credentials' }
+        details: `Failed login attempt for user: ${username}`,
+        timestamp: new Date().toISOString()
       });
 
       return NextResponse.json(
-        { message: 'שם משתמש או סיסמה שגויים' },
+        { error: 'Invalid credentials' },
         { status: 401 }
       );
     }
 
-    // Check if user account is active
-    if (!user.isActive) {
-      // Log failed login due to inactive account
-      await activityLogger.logWithRequest(request, {
-        user_id: user.id,
-        username: user.username,
-        action: 'login_failed',
-        details: { reason: 'Account inactive' }
-      });
-
-      return NextResponse.json(
-        { message: 'החשבון אינו פעיל' },
-        { status: 403 }
-      );
-    }
-
-    // Check if account has expired
-    if (user.expiryDate && new Date(user.expiryDate) < new Date()) {
-      // Log failed login due to expired account
-      await activityLogger.logWithRequest(request, {
-        user_id: user.id,
-        username: user.username,
-        action: 'login_failed',
-        details: { 
-          reason: 'Account expired',
-          expiry_date: user.expiryDate
-        }
-      });
-
-      return NextResponse.json(
-        { message: 'החשבון פג תוקף' },
-        { status: 403 }
-      );
-    }
-
-    // Create session data
-    const sessionData = {
+    // Create session token (in production, use JWT or similar)
+    const sessionToken = Buffer.from(JSON.stringify({
       userId: user.id,
       username: user.username,
       role: user.role,
-      loginTime: new Date().toISOString()
-    };
+      timestamp: Date.now()
+    })).toString('base64');
 
-    // Set session cookie using Next.js cookies
-    cookies().set('session', JSON.stringify(sessionData), {
+    // Set cookie
+    cookies().set('session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
-      path: '/'
+      maxAge: 60 * 60 * 24 * 7 // 7 days
     });
 
     // Log successful login
-    await activityLogger.logWithRequest(request, {
-      user_id: user.id,
-      username: user.username,
-      action: 'login',
-      details: {
-        role: user.role,
-        login_time: sessionData.loginTime
+    activityLogger.log({
+      action: 'login_success',
+      userId: user.id,
+      details: `User ${username} logged in successfully`,
+      timestamp: new Date().toISOString()
+    });
+
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
       }
     });
 
-    // Return success response
-    return NextResponse.json(
-      { 
-        message: 'התחברות הצליחה',
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role
-        }
-      },
-      { status: 200 }
-    );
   } catch (error) {
     console.error('Login error:', error);
     
-    // Log system error
-    await activityLogger.logWithRequest(request, {
-      username: 'system',
-      action: 'login_failed',
-      details: { 
-        reason: 'System error',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+    // Log error
+    activityLogger.log({
+      action: 'login_error',
+      details: `Login error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      timestamp: new Date().toISOString()
     });
 
     return NextResponse.json(
-      { message: 'שגיאת שרת פנימית' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    // Get session from cookie
-    const cookieHeader = request.headers.get('cookie');
-    let username = 'unknown';
-    let userId = null;
-
-    if (cookieHeader) {
-      const cookies = Object.fromEntries(
-        cookieHeader.split('; ').map(c => c.split('='))
-      );
-      
-      if (cookies.session) {
-        try {
-          const session = JSON.parse(decodeURIComponent(cookies.session));
-          username = session.username;
-          userId = session.userId;
-        } catch (e) {
-          console.error('Failed to parse session:', e);
-        }
-      }
-    }
-
-    // Clear session cookie using Next.js cookies
-    cookies().delete('session');
-
-    // Log logout
-    await activityLogger.logWithRequest(request, {
-      user_id: userId,
-      username,
-      action: 'logout',
-      details: {
-        logout_time: new Date().toISOString()
-      }
-    });
-
-    return NextResponse.json(
-      { message: 'יציאה הצליחה' },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Logout error:', error);
-    
-    return NextResponse.json(
-      { message: 'שגיאת שרת פנימית' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
