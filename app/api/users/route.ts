@@ -1,34 +1,26 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { usersStore } from '@/lib/users-store';
 import { cookies } from 'next/headers';
 
-// בדיקת הרשאות
-async function checkAuth() {
+// Helper function to check if user is authenticated and is admin
+function checkAdminAuth() {
   const sessionCookie = cookies().get('session');
-  
-  if (!sessionCookie) {
-    return null;
-  }
+  if (!sessionCookie) return null;
   
   try {
-    const session = JSON.parse(sessionCookie.value);
-    
-    // בדיקת תוקף
-    if (new Date(session.expiresAt) < new Date()) {
-      return null;
-    }
-    
+    const decoded = Buffer.from(sessionCookie.value, 'base64').toString();
+    const session = JSON.parse(decoded);
+    if (session.role !== 'admin') return null;
     return session;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
-// GET /api/users - קבלת כל המשתמשים
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await checkAuth();
-    
+    // Check authentication
+    const session = checkAdminAuth();
     if (!session) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -36,20 +28,16 @@ export async function GET() {
       );
     }
     
-    // רק admin או superadmin יכולים לראות את כל המשתמשים
-    if (session.role !== 'admin' && session.role !== 'superadmin' && session.role !== 'super-admin') {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
-    }
+    // Get all users
+    const users = usersStore.getAll();
     
-    const users = await usersStore.getAll();
+    // Remove passwords from response
+    const usersWithoutPasswords = users.map(user => {
+      const { password, ...userWithoutPassword } = user;
+      return userWithoutPassword;
+    });
     
-    // הסרת סיסמאות לפני החזרה
-    const sanitizedUsers = users.map(({ password, ...user }) => user);
-    
-    return NextResponse.json(sanitizedUsers);
+    return NextResponse.json(usersWithoutPasswords);
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json(
@@ -59,11 +47,10 @@ export async function GET() {
   }
 }
 
-// POST /api/users - יצירת משתמש חדש
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const session = await checkAuth();
-    
+    // Check authentication
+    const session = checkAdminAuth();
     if (!session) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -71,17 +58,10 @@ export async function POST(request: Request) {
       );
     }
     
-    // רק admin או superadmin יכולים ליצור משתמשים
-    if (session.role !== 'admin' && session.role !== 'superadmin' && session.role !== 'super-admin') {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
-    }
-    
     const body = await request.json();
-    const { username, password, role, expiryDate, isActive } = body;
+    const { username, password, role } = body;
     
+    // Validate input
     if (!username || !password || !role) {
       return NextResponse.json(
         { error: 'Username, password, and role are required' },
@@ -89,35 +69,34 @@ export async function POST(request: Request) {
       );
     }
     
-    try {
-      const newUser = await usersStore.create({
-        username,
-        password,
-        role,
-        expiryDate: expiryDate || '',
-        isActive: isActive !== undefined ? isActive : true
-      });
-      
-      if (!newUser) {
-        return NextResponse.json(
-          { error: 'Failed to create user' },
-          { status: 500 }
-        );
-      }
-      
-      // הסרת הסיסמה לפני החזרה
-      const { password: _, ...sanitizedUser } = newUser;
-      
-      return NextResponse.json(sanitizedUser, { status: 201 });
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Username already exists') {
-        return NextResponse.json(
-          { error: 'Username already exists' },
-          { status: 409 }
-        );
-      }
-      throw error;
+    // Validate role
+    if (role !== 'admin' && role !== 'user') {
+      return NextResponse.json(
+        { error: 'Invalid role. Must be "admin" or "user"' },
+        { status: 400 }
+      );
     }
+    
+    // Check if username already exists
+    const existingUser = usersStore.getByUsername(username);
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'Username already exists' },
+        { status: 400 }
+      );
+    }
+    
+    // Create user - only with the fields that exist in the User interface
+    const newUser = usersStore.create({
+      username,
+      password, // In production, hash this!
+      role
+    });
+    
+    // Remove password from response
+    const { password: _, ...userWithoutPassword } = newUser;
+    
+    return NextResponse.json(userWithoutPassword);
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(
