@@ -1,32 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
-const TENANT_ID = '00000000-0000-0000-0000-000000000001';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface Campaign {
   id: string;
-  tenant_id: string;
   name: string;
-  message?: string;
+  message: string;
   message_content?: string;
-  target_type?: string;
   status: string;
-  send_rate?: number;
-  delay?: number;
-  is_sending?: boolean;
-  total_recipients?: number;
   recipients_count?: number;
-  recipients?: any[];
+  total_recipients?: number;
   sent_count?: number;
   failed_count?: number;
+  send_rate?: number;
+  delay?: number;
+  created_at: string;
   start_time?: string;
   end_time?: string;
+  is_sending?: boolean;
+  target_type?: string;
+  target_tags?: string[];
   green_api_instance?: string;
   green_api_token?: string;
-  created_at: string;
-  updated_at?: string;
 }
 
 interface Contact {
@@ -36,114 +36,56 @@ interface Contact {
   tags?: string[];
 }
 
-export default function CampaignsPage() {
+export default function CampaignsNew() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showNewCampaign, setShowNewCampaign] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [campaignStats, setCampaignStats] = useState<any>({});
-  const [error, setError] = useState<string | null>(null);
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   
   const [newCampaign, setNewCampaign] = useState({
     name: '',
     message_content: '',
+    send_rate: 30,
     target_type: 'all',
     target_tags: [] as string[],
     custom_recipients: '',
-    send_rate: 30,
     green_api_instance: '',
     green_api_token: ''
   });
 
-  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
-
   useEffect(() => {
-    testConnection();
     fetchCampaigns();
     fetchContacts();
-  }, []);
-
-  useEffect(() => {
+    
+    // רענון אוטומטי כל 5 שניות עבור קמפיינים פעילים
     const interval = setInterval(() => {
-      campaigns.forEach(campaign => {
-        if (campaign.is_sending) {
-          fetchCampaignStats(campaign.id);
-        }
-      });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [campaigns]);
-
-  // בדיקת חיבור ל-Supabase
-  const testConnection = async () => {
-    try {
-      console.log('Testing Supabase connection...');
-      const { data, error } = await supabase
-        .from('campaigns')
-        .select('id')
-        .limit(1);
-      
-      if (error) {
-        console.error('Supabase connection test failed:', error);
-        setError(`בעיית חיבור ל-Supabase: ${error.message}`);
-      } else {
-        console.log('Supabase connection successful');
+      if (campaigns.some(c => c.is_sending)) {
+        fetchCampaigns();
       }
-    } catch (err: any) {
-      console.error('Connection error:', err);
-      setError(`שגיאת חיבור: ${err.message}`);
-    }
-  };
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchCampaigns = async () => {
     try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('Fetching campaigns...');
-      
-      // נסיון 1: query פשוט ללא פילטרים
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('campaigns')
-        .select('*');
-
+        .select('*')
+        .order('created_at', { ascending: false });
+      
       if (error) {
-        console.error('Error fetching all campaigns:', error);
-        
-        // נסיון 2: query עם שדות ספציפיים
-        const response = await supabase
-          .from('campaigns')
-          .select('id, name, status, created_at, sent_count, failed_count');
-        
-        data = response.data;
-        error = response.error;
-        
-        if (error) {
-          throw error;
-        }
+        console.error('Error fetching campaigns:', error);
+        setError('שגיאה בטעינת קמפיינים');
+      } else {
+        setCampaigns(data || []);
       }
-
-      // סינון לפי tenant_id בצד הלקוח אם צריך
-      const filteredData = data?.filter(c => c.tenant_id === TENANT_ID) || data || [];
-      
-      // מיון לפי תאריך יצירה
-      const sortedData = filteredData.sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-      
-      setCampaigns(sortedData);
-      console.log(`Fetched ${sortedData.length} campaigns`);
-      
-      // קבל סטטיסטיקות לכל קמפיין
-      sortedData.forEach(campaign => {
-        fetchCampaignStats(campaign.id);
-      });
-    } catch (error: any) {
-      console.error('Error fetching campaigns:', error);
-      setError(`שגיאה בטעינת קמפיינים: ${error.message}`);
-      setCampaigns([]);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      setError('שגיאה לא צפויה בטעינת קמפיינים');
     } finally {
       setLoading(false);
     }
@@ -151,361 +93,63 @@ export default function CampaignsPage() {
 
   const fetchContacts = async () => {
     try {
-      console.log('Fetching contacts...');
-      
-      // נסה query פשוט קודם
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('contacts')
-        .select('*');
-
-      if (error) {
-        console.error('Error fetching all contacts:', error);
-        
-        // נסה query עם שדות ספציפיים
-        const response = await supabase
-          .from('contacts')
-          .select('id, name, phone, tags');
-        
-        data = response.data;
-        error = response.error;
-        
-        if (error) {
-          throw error;
-        }
-      }
-
-      // סינון בצד הלקוח
-      const filteredData = data?.filter(c => 
-        c.tenant_id === TENANT_ID && c.opt_out !== true
-      ) || data || [];
+        .select('*')
+        .order('name');
       
-      setContacts(filteredData);
-      console.log(`Fetched ${filteredData.length} contacts`);
-    } catch (error: any) {
-      console.error('Error fetching contacts:', error);
-      setContacts([]);
-    }
-  };
-
-  const fetchCampaignStats = async (campaignId: string) => {
-    try {
-      const response = await fetch(`/api/campaigns/send?campaignId=${campaignId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setCampaignStats((prev: any) => ({
-          ...prev,
-          [campaignId]: data
-        }));
+      if (error) {
+        console.error('Error fetching contacts:', error);
+      } else {
+        setContacts(data || []);
       }
-    } catch (error) {
-      console.error('Error fetching campaign stats:', error);
+    } catch (err) {
+      console.error('Error fetching contacts:', err);
     }
   };
 
   const createCampaign = async () => {
     try {
-      setError(null);
-      
-      // הכן את הנמענים
-      let recipients: any[] = [];
-      let contactIds: string[] = [];
-      
-      if (newCampaign.target_type === 'all') {
-        recipients = contacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = contacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'tags') {
-        const filteredContacts = contacts.filter(contact => 
-          contact.tags?.some(tag => newCampaign.target_tags.includes(tag))
-        );
-        recipients = filteredContacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = filteredContacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'selected') {
-        const filteredContacts = contacts.filter(contact => 
-          selectedContacts.has(contact.id)
-        );
-        recipients = filteredContacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = filteredContacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'custom') {
-        const customNumbers = newCampaign.custom_recipients
-          .split('\n')
-          .map(n => n.trim())
-          .filter(n => n.length > 0);
-        recipients = customNumbers.map(phone => ({ phone, name: '' }));
-      }
-
-      if (recipients.length === 0) {
-        alert('לא נבחרו נמענים');
+      // בדיקות בסיסיות
+      if (!newCampaign.name.trim()) {
+        setError('יש להזין שם לקמפיין');
         return;
       }
-
-      console.log('Creating campaign with recipients:', recipients.length);
-
-      // נסה מספר קומבינציות של שדות עד שמשהו יעבוד
-      const attempts = [
-        // נסיון 1: כל השדות האפשריים
-        {
-          tenant_id: TENANT_ID,
-          name: newCampaign.name,
-          message: newCampaign.message_content,
-          message_content: newCampaign.message_content,
-          recipients: recipients,
-          recipients_count: recipients.length,
-          total_recipients: recipients.length,
-          target_type: newCampaign.target_type,
-          status: 'draft',
-          delay: newCampaign.send_rate,
-          send_rate: newCampaign.send_rate,
-          sent_count: 0,
-          failed_count: 0,
-          is_sending: false,
-          green_api_instance: newCampaign.green_api_instance || null,
-          green_api_token: newCampaign.green_api_token || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        // נסיון 2: ללא tenant_id
-        {
-          name: newCampaign.name,
-          message: newCampaign.message_content,
-          message_content: newCampaign.message_content,
-          recipients: recipients,
-          recipients_count: recipients.length,
-          total_recipients: recipients.length,
-          target_type: newCampaign.target_type,
-          status: 'draft',
-          delay: newCampaign.send_rate,
-          send_rate: newCampaign.send_rate,
-          sent_count: 0,
-          failed_count: 0,
-          is_sending: false,
-          green_api_instance: newCampaign.green_api_instance || null,
-          green_api_token: newCampaign.green_api_token || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        // נסיון 3: רק עם message (לא message_content)
-        {
-          tenant_id: TENANT_ID,
-          name: newCampaign.name,
-          message: newCampaign.message_content,
-          recipients: recipients,
-          recipients_count: recipients.length,
-          status: 'draft',
-          delay: newCampaign.send_rate,
-          sent_count: 0,
-          failed_count: 0,
-          created_at: new Date().toISOString()
-        },
-        // נסיון 4: רק עם message_content (לא message)
-        {
-          tenant_id: TENANT_ID,
-          name: newCampaign.name,
-          message_content: newCampaign.message_content,
-          recipients: recipients,
-          recipients_count: recipients.length,
-          status: 'draft',
-          send_rate: newCampaign.send_rate,
-          sent_count: 0,
-          failed_count: 0,
-          created_at: new Date().toISOString()
-        },
-        // נסיון 5: מינימום עם message
-        {
-          name: newCampaign.name,
-          message: newCampaign.message_content,
-          status: 'draft'
-        },
-        // נסיון 6: מינימום עם message_content
-        {
-          name: newCampaign.name,
-          message_content: newCampaign.message_content,
-          status: 'draft'
-        }
-      ];
-
-      let campaign: any = null;
-      let successfulAttempt = -1;
-
-      // נסה כל קומבינציה
-      for (let i = 0; i < attempts.length; i++) {
-        console.log(`Attempt ${i + 1} to create campaign...`);
-        try {
-          const { data, error } = await supabase
-            .from('campaigns')
-            .insert([attempts[i]])
-            .select()
-            .single();
-
-          if (!error && data) {
-            campaign = data;
-            successfulAttempt = i;
-            console.log(`Success on attempt ${i + 1}!`);
-            break;
-          } else {
-            console.log(`Attempt ${i + 1} failed:`, error?.message);
-          }
-        } catch (err: any) {
-          console.log(`Attempt ${i + 1} error:`, err.message);
-        }
-      }
-
-      if (!campaign) {
-        throw new Error('לא הצלחתי ליצור קמפיין. בדוק את מבנה הטבלה ב-Supabase.');
-      }
-
-      console.log('Campaign created:', campaign.id);
-
-      // אחרי שהקמפיין נוצר, נסה לעדכן שדות נוספים
-      const fieldsToUpdate: any = {};
       
-      // רשימת שדות לנסות לעדכן (רק אם לא נכללו ביצירה המוצלחת)
-      if (successfulAttempt >= 5) { // אם נוצר עם מינימום שדות
-        if (newCampaign.green_api_instance) fieldsToUpdate.green_api_instance = newCampaign.green_api_instance;
-        if (newCampaign.green_api_token) fieldsToUpdate.green_api_token = newCampaign.green_api_token;
-        if (recipients.length > 0) {
-          fieldsToUpdate.recipients = recipients;
-          fieldsToUpdate.recipients_count = recipients.length;
-          fieldsToUpdate.total_recipients = recipients.length;
-        }
-        fieldsToUpdate.delay = newCampaign.send_rate;
-        fieldsToUpdate.send_rate = newCampaign.send_rate;
-        fieldsToUpdate.target_type = newCampaign.target_type;
-        fieldsToUpdate.sent_count = 0;
-        fieldsToUpdate.failed_count = 0;
-        fieldsToUpdate.tenant_id = TENANT_ID;
-      }
-
-      if (Object.keys(fieldsToUpdate).length > 0) {
-        console.log('Updating campaign with additional fields...');
-        try {
-          await supabase
-            .from('campaigns')
-            .update(fieldsToUpdate)
-            .eq('id', campaign.id);
-          console.log('Additional fields updated successfully');
-        } catch (err) {
-          console.log('Some fields could not be updated, continuing anyway');
-        }
-      }
-
-      // נסה להוסיף לטבלת campaign_recipients אם יש אנשי קשר
-      if (contactIds.length > 0) {
-        try {
-          const campaignRecipients = contactIds.map(contactId => ({
-            campaign_id: campaign.id,
-            contact_id: contactId,
-            tenant_id: TENANT_ID,
-            status: 'pending'
-          }));
-
-          console.log('Adding recipients to campaign_recipients...');
-          await supabase
-            .from('campaign_recipients')
-            .insert(campaignRecipients);
-          
-          console.log('Recipients added successfully');
-        } catch (err) {
-          console.log('campaign_recipients table might not exist, skipping...');
-        }
-      }
-
-      alert(`קמפיין נוצר בהצלחה! ${recipients.length} נמענים נוספו.`);
-      
-      // אפס הכל
-      setShowNewCampaign(false);
-      setNewCampaign({
-        name: '',
-        message_content: '',
-        target_type: 'all',
-        target_tags: [],
-        custom_recipients: '',
-        send_rate: 30,
-        green_api_instance: '',
-        green_api_token: ''
-      });
-      setSelectedContacts(new Set());
-      
-      // רענן רשימת קמפיינים
-      await fetchCampaigns();
-      
-    } catch (error: any) {
-      console.error('Error creating campaign:', error);
-      setError(`שגיאה ביצירת קמפיין: ${error.message}`);
-      alert(`שגיאה ביצירת קמפיין: ${error.message}`);
-    }
-  };
-    try {
-      setError(null);
-      
-      // הכן את הנמענים
-      let recipients: any[] = [];
-      let contactIds: string[] = [];
-      
-      if (newCampaign.target_type === 'all') {
-        recipients = contacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = contacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'tags') {
-        const filteredContacts = contacts.filter(contact => 
-          contact.tags?.some(tag => newCampaign.target_tags.includes(tag))
-        );
-        recipients = filteredContacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = filteredContacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'selected') {
-        const filteredContacts = contacts.filter(contact => 
-          selectedContacts.has(contact.id)
-        );
-        recipients = filteredContacts.map(c => ({ phone: c.phone, name: c.name || '' }));
-        contactIds = filteredContacts.map(c => c.id);
-      } else if (newCampaign.target_type === 'custom') {
-        const customNumbers = newCampaign.custom_recipients
-          .split('\n')
-          .map(n => n.trim())
-          .filter(n => n.length > 0);
-        recipients = customNumbers.map(phone => ({ phone, name: '' }));
-      }
-
-      if (recipients.length === 0) {
-        alert('לא נבחרו נמענים');
+      if (!newCampaign.message_content.trim()) {
+        setError('יש להזין תוכן הודעה');
         return;
       }
-
-      console.log('Creating campaign with recipients:', recipients.length);
-
-      // בנה אובייקט קמפיין בסיסי
-      const campaignData: any = {
-        name: newCampaign.name,
+      
+      // הכנת נתוני הקמפיין
+      const campaignData = {
+        name: newCampaign.name.trim(),
+        message_content: newCampaign.message_content.trim(),
         status: 'draft',
-        created_at: new Date().toISOString()
-      };
-
-      // הוסף את tenant_id רק אם השדה קיים בטבלה
-      // נבדוק את זה בהמשך
-
-      // הוסף שדות אופציונליים - נוסיף רק את השדות שבאמת קיימים
-      const optionalFields: any = {
-        tenant_id: TENANT_ID,
-        message: newCampaign.message_content,
-        message_content: newCampaign.message_content,
-        recipients: recipients,
-        recipients_count: recipients.length,
-        total_recipients: recipients.length,
-        delay: newCampaign.send_rate,
         send_rate: newCampaign.send_rate,
-        target_type: newCampaign.target_type,
+        total_recipients: 0,
         sent_count: 0,
         failed_count: 0,
         is_sending: false,
-        updated_at: new Date().toISOString()
+        target_type: newCampaign.target_type,
+        created_at: new Date().toISOString()
       };
-
-      // הוסף Green API אם יש
+      
+      // הוספת שדות אופציונליים אם קיימים
+      const optionalFields: any = {};
+      
+      if (newCampaign.target_type === 'tags' && newCampaign.target_tags.length > 0) {
+        optionalFields.target_tags = newCampaign.target_tags;
+      }
+      
       if (newCampaign.green_api_instance) {
         optionalFields.green_api_instance = newCampaign.green_api_instance;
       }
+      
       if (newCampaign.green_api_token) {
         optionalFields.green_api_token = newCampaign.green_api_token;
       }
-
+      
       // נסה ליצור עם כל השדות
       console.log('Attempting to create campaign with all fields...');
       let { data: campaign, error: campaignError } = await supabase
@@ -513,32 +157,39 @@ export default function CampaignsPage() {
         .insert([{...campaignData, ...optionalFields}])
         .select()
         .single();
-
+      
       if (campaignError) {
-        console.error('Full insert failed:', campaignError);
+        console.error('Error with full campaign:', campaignError);
         
-        // נסה עם פחות שדות אבל כולל message שהוא חובה
-        console.log('Attempting minimal campaign creation with required fields...');
+        // נסיון ללא שדות אופציונליים
+        console.log('Retrying with minimal fields...');
         const minimalData = {
-          name: newCampaign.name,
-          message: newCampaign.message_content, // שדה חובה!
+          name: newCampaign.name.trim(),
+          message_content: newCampaign.message_content.trim(),
           status: 'draft',
+          send_rate: newCampaign.send_rate,
+          total_recipients: 0,
+          sent_count: 0,
+          failed_count: 0,
           created_at: new Date().toISOString()
         };
-
+        
         const { data: minimalCampaign, error: minimalError } = await supabase
           .from('campaigns')
           .insert([minimalData])
           .select()
           .single();
-
+        
         if (minimalError) {
-          // אם עדיין נכשל, נסה עם message_content במקום message
-          console.log('Trying with message_content field...');
+          console.error('Error with minimal campaign:', minimalError);
+          
+          // נסיון אחרון עם שמות שדות חלופיים
           const alternativeData = {
-            name: newCampaign.name,
-            message_content: newCampaign.message_content,
+            name: newCampaign.name.trim(),
+            message: newCampaign.message_content.trim(), // שם שדה חלופי
             status: 'draft',
+            delay: newCampaign.send_rate, // שם שדה חלופי
+            recipients_count: 0, // שם שדה חלופי
             created_at: new Date().toISOString()
           };
           
@@ -547,37 +198,34 @@ export default function CampaignsPage() {
             .insert([alternativeData])
             .select()
             .single();
-            
+          
           if (altError) {
-            throw new Error(`לא הצלחתי ליצור קמפיין: ${altError.message}`);
+            throw altError;
           }
           
           campaign = altCampaign;
         } else {
           campaign = minimalCampaign;
         }
-
+      }
+      
+      if (!campaign) {
+        throw new Error('לא הצליח ליצור קמפיין');
+      }
+      
+      console.log('Campaign created:', campaign);
+      
+      // נסה להוסיף שדות אופציונליים בנפרד
+      if (Object.keys(optionalFields).length > 0 && campaign.id) {
+        console.log('Adding optional fields separately...');
         
-        // נסה לעדכן עם שאר השדות
-        console.log('Updating campaign with additional fields...');
-        const updateData: any = {};
-        
-        // נוסיף שדות אחד אחד ונבדוק מה עובד
         const fieldsToTry = [
-          { key: 'tenant_id', value: TENANT_ID },
-          { key: 'recipients', value: recipients },
-          { key: 'recipients_count', value: recipients.length },
-          { key: 'total_recipients', value: recipients.length },
-          { key: 'delay', value: newCampaign.send_rate },
-          { key: 'send_rate', value: newCampaign.send_rate },
           { key: 'target_type', value: newCampaign.target_type },
-          { key: 'sent_count', value: 0 },
-          { key: 'failed_count', value: 0 },
-          { key: 'is_sending', value: false },
+          { key: 'target_tags', value: newCampaign.target_tags },
           { key: 'green_api_instance', value: newCampaign.green_api_instance },
           { key: 'green_api_token', value: newCampaign.green_api_token }
         ];
-
+        
         for (const field of fieldsToTry) {
           if (field.value !== undefined && field.value !== '') {
             try {
@@ -585,56 +233,65 @@ export default function CampaignsPage() {
                 .from('campaigns')
                 .update({ [field.key]: field.value })
                 .eq('id', campaign.id);
-              
-              updateData[field.key] = field.value;
-              console.log(`Successfully updated field: ${field.key}`);
-            } catch (err) {
-              console.log(`Field ${field.key} does not exist in table`);
+            } catch (updateError) {
+              console.log(`Could not add ${field.key}:`, updateError);
             }
           }
         }
-
-        // עדכן את הקמפיין המקומי
-        campaign = { ...campaign, ...updateData };
       }
-
-      console.log('Campaign created:', campaign.id);
-
-      // נסה להוסיף לטבלת campaign_recipients אם יש אנשי קשר
-      if (contactIds.length > 0) {
-        try {
-          const campaignRecipients = contactIds.map(contactId => ({
-            campaign_id: campaign.id,
-            contact_id: contactId,
-            tenant_id: TENANT_ID,
-            status: 'pending'
-          }));
-
-          console.log('Adding recipients to campaign_recipients...');
-          await supabase
-            .from('campaign_recipients')
-            .insert(campaignRecipients);
-          
-          console.log('Recipients added successfully');
-        } catch (err) {
-          console.log('campaign_recipients table might not exist, skipping...');
-        }
-      }
-
-      alert(`קמפיין נוצר בהצלחה! ${recipients.length} נמענים נוספו.`);
       
-      // אפס הכל
-      setShowNewCampaign(false);
+      // הכנת רשימת נמענים
+      let recipients: string[] = [];
+      
+      if (newCampaign.target_type === 'all') {
+        recipients = contacts.map(c => c.phone);
+      } else if (newCampaign.target_type === 'tags' && newCampaign.target_tags.length > 0) {
+        recipients = contacts
+          .filter(c => c.tags?.some(tag => newCampaign.target_tags.includes(tag)))
+          .map(c => c.phone);
+      } else if (newCampaign.target_type === 'selected') {
+        recipients = contacts
+          .filter(c => selectedContacts.has(c.id))
+          .map(c => c.phone);
+      } else if (newCampaign.target_type === 'custom') {
+        recipients = newCampaign.custom_recipients
+          .split('\n')
+          .map(p => p.trim())
+          .filter(p => p.length > 0);
+      }
+      
+      // הוספת נמענים לטבלת campaign_recipients
+      if (recipients.length > 0 && campaign.id) {
+        const campaignRecipients = recipients.map(phone => ({
+          campaign_id: campaign.id,
+          phone: phone,
+          status: 'pending'
+        }));
+        
+        console.log('Adding recipients to campaign_recipients...');
+        await supabase
+          .from('campaign_recipients')
+          .insert(campaignRecipients);
+        
+        // עדכון מספר הנמענים בקמפיין
+        await supabase
+          .from('campaigns')
+          .update({ total_recipients: recipients.length })
+          .eq('id', campaign.id);
+      }
+      
+      // איפוס הטופס
       setNewCampaign({
         name: '',
         message_content: '',
+        send_rate: 30,
         target_type: 'all',
         target_tags: [],
         custom_recipients: '',
-        send_rate: 30,
         green_api_instance: '',
         green_api_token: ''
       });
+      setShowNewCampaign(false);
       setSelectedContacts(new Set());
       
       // רענן רשימת קמפיינים
@@ -642,120 +299,83 @@ export default function CampaignsPage() {
       
     } catch (error: any) {
       console.error('Error creating campaign:', error);
-      setError(`שגיאה ביצירת קמפיין: ${error.message}`);
-      alert(`שגיאה ביצירת קמפיין: ${error.message}`);
+      setError(error.message || 'שגיאה ביצירת קמפיין');
     }
   };
 
   const startCampaign = async (campaignId: string) => {
-    if (!confirm('האם אתה בטוח שברצונך להתחיל את הקמפיין?')) return;
-
     try {
-      // נסה לעדכן את הסטטוס
-      const updateData: any = {
-        status: 'sending',
-        start_time: new Date().toISOString()
-      };
-
-      // נסה להוסיף שדות אופציונליים
-      try {
-        await supabase
-          .from('campaigns')
-          .update({ ...updateData, is_sending: true })
-          .eq('id', campaignId);
-      } catch {
-        // אם is_sending לא קיים, נסה בלעדיו
-        await supabase
-          .from('campaigns')
-          .update(updateData)
-          .eq('id', campaignId);
-      }
-
-      // נסה לקרוא ל-API
-      try {
-        const response = await fetch('/api/campaigns/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            campaignId,
-            action: 'start'
-          })
-        });
-
-        if (!response.ok) {
-          console.log('API call failed, but campaign status updated');
-        }
-      } catch (err) {
-        console.log('API not available, continuing...');
-      }
-
-      alert('הקמפיין הופעל בהצלחה!');
-      fetchCampaigns();
+      const response = await fetch('/api/campaigns/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId })
+      });
       
-    } catch (error: any) {
+      if (!response.ok) {
+        throw new Error('Failed to start campaign');
+      }
+      
+      await fetchCampaigns();
+    } catch (error) {
       console.error('Error starting campaign:', error);
-      alert('שגיאה בהפעלת הקמפיין: ' + error.message);
+      setError('שגיאה בהתחלת קמפיין');
     }
   };
 
   const stopCampaign = async (campaignId: string) => {
-    if (!confirm('האם אתה בטוח שברצונך לעצור את הקמפיין?')) return;
-
     try {
-      const updateData: any = {
-        status: 'paused'
-      };
-
-      try {
-        await supabase
-          .from('campaigns')
-          .update({ ...updateData, is_sending: false })
-          .eq('id', campaignId);
-      } catch {
-        await supabase
-          .from('campaigns')
-          .update(updateData)
-          .eq('id', campaignId);
-      }
-
-      alert('הקמפיין נעצר');
-      fetchCampaigns();
+      const response = await fetch('/api/campaigns/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId })
+      });
       
-    } catch (error: any) {
+      if (!response.ok) {
+        throw new Error('Failed to stop campaign');
+      }
+      
+      await fetchCampaigns();
+    } catch (error) {
       console.error('Error stopping campaign:', error);
-      alert('שגיאה בעצירת הקמפיין: ' + error.message);
+      setError('שגיאה בעצירת קמפיין');
     }
   };
 
   const deleteCampaign = async (campaignId: string) => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את הקמפיין?')) return;
-
+    if (!confirm('האם אתה בטוח שברצונך למחוק קמפיין זה?')) {
+      return;
+    }
+    
     try {
-      // נסה למחוק מ-campaign_recipients אם קיימת
-      try {
-        await supabase
-          .from('campaign_recipients')
-          .delete()
-          .eq('campaign_id', campaignId);
-      } catch {
-        console.log('No campaign_recipients to delete');
-      }
-
+      // מחק קודם את הנמענים
+      await supabase
+        .from('campaign_recipients')
+        .delete()
+        .eq('campaign_id', campaignId);
+      
       // מחק את הקמפיין
       const { error } = await supabase
         .from('campaigns')
         .delete()
         .eq('id', campaignId);
-
+      
       if (error) throw error;
       
-      alert('הקמפיין נמחק בהצלחה');
-      fetchCampaigns();
-    } catch (error: any) {
+      await fetchCampaigns();
+    } catch (error) {
       console.error('Error deleting campaign:', error);
-      alert('שגיאה במחיקת הקמפיין: ' + error.message);
+      setError('שגיאה במחיקת קמפיין');
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'draft': return 'טיוטה';
+      case 'sending': return 'שולח...';
+      case 'paused': return 'מושהה';
+      case 'completed': return 'הושלם';
+      case 'failed': return 'נכשל';
+      default: return status;
     }
   };
 
@@ -763,21 +383,10 @@ export default function CampaignsPage() {
     switch (status) {
       case 'draft': return 'bg-gray-100 text-gray-800';
       case 'sending': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-green-100 text-green-800';
       case 'paused': return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-green-100 text-green-800';
       case 'failed': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'draft': return 'טיוטה';
-      case 'sending': return 'נשלח...';
-      case 'completed': return 'הושלם';
-      case 'paused': return 'מושהה';
-      case 'failed': return 'נכשל';
-      default: return status;
     }
   };
 
