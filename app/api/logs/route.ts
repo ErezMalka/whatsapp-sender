@@ -1,162 +1,159 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { activityLogger } from '@/lib/activity-logger';
+import { cookies } from 'next/headers';
+
+// Helper function to parse session from cookie
+function getSession() {
+  const sessionCookie = cookies().get('session');
+  if (!sessionCookie) return null;
+  
+  try {
+    const decoded = Buffer.from(sessionCookie.value, 'base64').toString();
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // Check if user is authenticated
-    const cookieHeader = request.headers.get('cookie');
-    if (!cookieHeader || !cookieHeader.includes('session=')) {
+    // Check authentication
+    const session = getSession();
+    if (!session) {
       return NextResponse.json(
-        { message: 'לא מחובר' },
+        { error: 'Unauthorized' },
         { status: 401 }
-      );
-    }
-
-    // Parse session from cookie
-    let session;
-    try {
-      const cookies = Object.fromEntries(
-        cookieHeader.split('; ').map(c => c.split('='))
-      );
-      
-      if (!cookies.session) {
-        return NextResponse.json(
-          { message: 'לא מחובר' },
-          { status: 401 }
-        );
-      }
-
-      session = JSON.parse(decodeURIComponent(cookies.session));
-    } catch (e) {
-      return NextResponse.json(
-        { message: 'סשן לא תקין' },
-        { status: 401 }
-      );
-    }
-
-    // Check if user is admin or superadmin
-    if (session.role !== 'admin' && session.role !== 'superadmin') {
-      // Log unauthorized access attempt
-      await activityLogger.logWithRequest(request, {
-        user_id: session.userId,
-        username: session.username,
-        action: 'view_logs',
-        details: { denied: true, reason: 'Insufficient permissions' }
-      });
-
-      return NextResponse.json(
-        { message: 'אין הרשאות מתאימות' },
-        { status: 403 }
       );
     }
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
-    const username = searchParams.get('username') || undefined;
-    const action = searchParams.get('action') as any || undefined;
-    const fromDate = searchParams.get('from_date') || undefined;
-    const toDate = searchParams.get('to_date') || undefined;
+    const limit = searchParams.get('limit');
+    const userId = searchParams.get('userId');
+    const action = searchParams.get('action');
 
-    // Log the viewing of logs
-    await activityLogger.logWithRequest(request, {
-      user_id: session.userId,
-      username: session.username,
-      action: 'view_logs',
-      details: {
-        filters: {
-          username,
-          action,
-          from_date: fromDate,
-          to_date: toDate
-        }
+    // Check permissions
+    // Only admin and superadmin can view logs
+    // Regular users can only view their own logs
+    if (session.role !== 'admin' && session.role !== 'superadmin') {
+      // Log unauthorized access attempt - using the regular log method
+      activityLogger.log({
+        userId: session.userId,
+        action: 'permission_denied',
+        details: `User ${session.username} attempted to view logs without permission`,
+        timestamp: new Date().toISOString()
+      });
+
+      // Regular users can only see their own logs
+      if (userId && userId !== session.userId) {
+        return NextResponse.json(
+          { error: 'You can only view your own logs' },
+          { status: 403 }
+        );
       }
-    });
 
-    // Fetch logs from database
-    const { logs, total } = await activityLogger.getLogs({
-      username,
-      action,
-      limit,
-      offset,
-      from_date: fromDate,
-      to_date: toDate
-    });
+      // Force userId to be the current user's ID for non-admins
+      const userLogs = activityLogger.getLogsByUser(
+        session.userId,
+        limit ? parseInt(limit) : undefined
+      );
 
-    return NextResponse.json({
-      logs,
-      total,
-      page: Math.floor(offset / limit) + 1,
-      totalPages: Math.ceil(total / limit)
-    });
+      return NextResponse.json(userLogs);
+    }
+
+    // Admin users can view all logs
+    let logs;
+    
+    if (userId) {
+      logs = activityLogger.getLogsByUser(
+        userId,
+        limit ? parseInt(limit) : undefined
+      );
+    } else if (action) {
+      logs = activityLogger.getLogsByAction(
+        action as any,
+        limit ? parseInt(limit) : undefined
+      );
+    } else {
+      logs = activityLogger.getLogs(
+        limit ? parseInt(limit) : undefined
+      );
+    }
+
+    return NextResponse.json(logs);
+
   } catch (error) {
     console.error('Error fetching logs:', error);
     
+    // Log error
+    activityLogger.log({
+      action: 'error',
+      details: `Error fetching logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      timestamp: new Date().toISOString()
+    });
+
     return NextResponse.json(
-      { message: 'שגיאת שרת פנימית' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-// Clear old logs endpoint (admin only)
 export async function DELETE(request: NextRequest) {
   try {
-    // Check if user is authenticated
-    const cookieHeader = request.headers.get('cookie');
-    if (!cookieHeader || !cookieHeader.includes('session=')) {
+    // Check authentication
+    const session = getSession();
+    if (!session) {
       return NextResponse.json(
-        { message: 'לא מחובר' },
-        { status: 401 }
-      );
-    }
-
-    // Parse session from cookie
-    let session;
-    try {
-      const cookies = Object.fromEntries(
-        cookieHeader.split('; ').map(c => c.split('='))
-      );
-      
-      if (!cookies.session) {
-        return NextResponse.json(
-          { message: 'לא מחובר' },
-          { status: 401 }
-        );
-      }
-
-      session = JSON.parse(decodeURIComponent(cookies.session));
-    } catch (e) {
-      return NextResponse.json(
-        { message: 'סשן לא תקין' },
+        { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
     // Only superadmin can clear logs
     if (session.role !== 'superadmin') {
+      // Log unauthorized access attempt
+      activityLogger.log({
+        userId: session.userId,
+        action: 'permission_denied',
+        details: `User ${session.username} attempted to clear logs without permission`,
+        timestamp: new Date().toISOString()
+      });
+
       return NextResponse.json(
-        { message: 'רק superadmin יכול למחוק לוגים' },
+        { error: 'Only superadmin can clear logs' },
         { status: 403 }
       );
     }
 
-    // Get days parameter (default 90 days)
-    const searchParams = request.nextUrl.searchParams;
-    const days = parseInt(searchParams.get('days') || '90');
+    // Clear logs
+    activityLogger.clearLogs();
 
-    // Clear old logs
-    await activityLogger.clearOldLogs(days);
-
-    return NextResponse.json({
-      message: `נמחקו לוגים ישנים מ-${days} ימים`
+    // Log the action
+    activityLogger.log({
+      userId: session.userId,
+      action: 'settings_updated',
+      details: `Logs cleared by ${session.username}`,
+      timestamp: new Date().toISOString()
     });
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Logs cleared successfully' 
+    });
+
   } catch (error) {
     console.error('Error clearing logs:', error);
     
+    // Log error
+    activityLogger.log({
+      action: 'error',
+      details: `Error clearing logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      timestamp: new Date().toISOString()
+    });
+
     return NextResponse.json(
-      { message: 'שגיאת שרת פנימית' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
