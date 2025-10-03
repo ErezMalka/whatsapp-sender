@@ -55,7 +55,7 @@ export default function Navigation() {
   };
 
   const isActive = (path: string) => {
-    return pathname === path;
+    return pathname === path || pathname.startsWith(path + '/');
   };
 
   const navLinkClass = (path: string) => {
@@ -88,8 +88,16 @@ export default function Navigation() {
             </div>
             <div className="hidden md:block">
               <div className="mr-10 flex items-baseline space-x-4 space-x-reverse">
-                <Link href="/" className={navLinkClass('/')}>
-                  דף הבית
+                <Link href="/admin" className={navLinkClass('/admin')}>
+                  דשבורד
+                </Link>
+                
+                <Link href="/admin/contacts" className={navLinkClass('/admin/contacts')}>
+                  אנשי קשר
+                </Link>
+                
+                <Link href="/admin/campaigns-new" className={navLinkClass('/admin/campaigns-new')}>
+                  קמפיינים
                 </Link>
                 
                 <Link href="/send" className={navLinkClass('/send')}>
@@ -98,10 +106,6 @@ export default function Navigation() {
                 
                 <Link href="/templates" className={navLinkClass('/templates')}>
                   תבניות
-                </Link>
-                
-                <Link href="/contacts" className={navLinkClass('/contacts')}>
-                  אנשי קשר
                 </Link>
 
                 {/* Admin Menu */}
@@ -121,7 +125,7 @@ export default function Navigation() {
                             href="/admin/settings" 
                             className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           >
-                            ניהול משתמשים
+                            הגדרות
                           </Link>
                           
                           <Link 
@@ -202,8 +206,16 @@ export default function Navigation() {
       {mobileMenuOpen && (
         <div className="md:hidden">
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            <Link href="/" className={mobileNavLinkClass('/')}>
-              דף הבית
+            <Link href="/admin" className={mobileNavLinkClass('/admin')}>
+              דשבורד
+            </Link>
+            
+            <Link href="/admin/contacts" className={mobileNavLinkClass('/admin/contacts')}>
+              אנשי קשר
+            </Link>
+            
+            <Link href="/admin/campaigns-new" className={mobileNavLinkClass('/admin/campaigns-new')}>
+              קמפיינים
             </Link>
             
             <Link href="/send" className={mobileNavLinkClass('/send')}>
@@ -212,10 +224,6 @@ export default function Navigation() {
             
             <Link href="/templates" className={mobileNavLinkClass('/templates')}>
               תבניות
-            </Link>
-            
-            <Link href="/contacts" className={mobileNavLinkClass('/contacts')}>
-              אנשי קשר
             </Link>
 
             {(user.role === 'admin' || user.role === 'superadmin') && (
@@ -226,7 +234,7 @@ export default function Navigation() {
                 </div>
                 
                 <Link href="/admin/settings" className={mobileNavLinkClass('/admin/settings')}>
-                  ניהול משתמשים
+                  הגדרות
                 </Link>
                 
                 <Link href="/admin/logs" className={mobileNavLinkClass('/admin/logs')}>
