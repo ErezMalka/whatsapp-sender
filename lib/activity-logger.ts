@@ -1,234 +1,78 @@
-import { createClient } from '@supabase/supabase-js';
-import { NextRequest } from 'next/server';
-
-// Check if Supabase is configured
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-// Initialize Supabase client only if credentials exist
-const supabase = supabaseUrl && supabaseKey 
-  ? createClient(supabaseUrl, supabaseKey)
-  : null;
+// Activity logger for tracking user actions and system events
 
 export type LogAction = 
-  | 'login'
-  | 'logout'
+  | 'login_attempt'
+  | 'login_success'
   | 'login_failed'
-  | 'create_user'
-  | 'update_user'
-  | 'delete_user'
-  | 'update_password'
-  | 'reset_password_request'
-  | 'reset_password_complete'
-  | 'view_users'
-  | 'view_logs';
+  | 'login_error'
+  | 'logout'
+  | 'user_created'
+  | 'user_updated'
+  | 'user_deleted'
+  | 'permission_denied'
+  | 'error'
+  | 'campaign_created'
+  | 'campaign_started'
+  | 'campaign_stopped'
+  | 'campaign_completed'
+  | 'message_sent'
+  | 'message_failed'
+  | 'contact_created'
+  | 'contact_updated'
+  | 'contact_deleted'
+  | 'settings_updated';
 
-export interface LogEntry {
-  user_id?: string | null;
-  username: string;
-  action: LogAction;
-  details?: Record<string, any>;
-  ip_address?: string | null;
-  user_agent?: string | null;
-}
-
-export interface ActivityLog extends LogEntry {
+export interface ActivityLog {
   id: string;
-  created_at: string;
+  action: LogAction;
+  userId?: string;
+  details: string;
+  timestamp: string;
+  metadata?: Record<string, any>;
 }
 
 class ActivityLogger {
-  /**
-   * Log an activity to the database
-   */
-  async log(entry: LogEntry): Promise<void> {
-    try {
-      // If Supabase is not configured, just log to console
-      if (!supabase) {
-        console.log('[Activity Log]', entry);
-        return;
-      }
+  private logs: ActivityLog[] = [];
+  private maxLogs = 1000; // Keep only the last 1000 logs in memory
 
-      const { error } = await supabase
-        .from('activity_logs')
-        .insert([{
-          user_id: entry.user_id || null,
-          username: entry.username,
-          action: entry.action,
-          details: entry.details || {},
-          ip_address: entry.ip_address || null,
-          user_agent: entry.user_agent || null
-        }]);
-
-      if (error) {
-        console.error('Failed to log activity:', error);
-      }
-    } catch (error) {
-      console.error('Error in activity logger:', error);
-    }
-  }
-
-  /**
-   * Extract IP address from request
-   */
-  getIpAddress(request: NextRequest): string | null {
-    const forwarded = request.headers.get('x-forwarded-for');
-    const realIp = request.headers.get('x-real-ip');
-    
-    if (forwarded) {
-      return forwarded.split(',')[0].trim();
-    }
-    if (realIp) {
-      return realIp;
-    }
-    return null;
-  }
-
-  /**
-   * Extract user agent from request
-   */
-  getUserAgent(request: NextRequest): string | null {
-    return request.headers.get('user-agent');
-  }
-
-  /**
-   * Log activity with request context
-   */
-  async logWithRequest(
-    request: NextRequest,
-    entry: Omit<LogEntry, 'ip_address' | 'user_agent'>
-  ): Promise<void> {
-    await this.log({
+  log(entry: Omit<ActivityLog, 'id'>): void {
+    const logEntry: ActivityLog = {
       ...entry,
-      ip_address: this.getIpAddress(request),
-      user_agent: this.getUserAgent(request)
-    });
-  }
+      id: Date.now().toString(),
+    };
 
-  /**
-   * Get activity logs with filters
-   */
-  async getLogs(options?: {
-    user_id?: string;
-    username?: string;
-    action?: LogAction;
-    limit?: number;
-    offset?: number;
-    from_date?: string;
-    to_date?: string;
-  }): Promise<{ logs: ActivityLog[]; total: number }> {
-    try {
-      // If Supabase is not configured, return empty logs
-      if (!supabase) {
-        console.log('[Activity Logger] Supabase not configured');
-        return { logs: [], total: 0 };
-      }
+    this.logs.unshift(logEntry);
 
-      let query = supabase
-        .from('activity_logs')
-        .select('*', { count: 'exact' });
-
-      // Apply filters
-      if (options?.user_id) {
-        query = query.eq('user_id', options.user_id);
-      }
-      if (options?.username) {
-        query = query.ilike('username', `%${options.username}%`);
-      }
-      if (options?.action) {
-        query = query.eq('action', options.action);
-      }
-      if (options?.from_date) {
-        query = query.gte('created_at', options.from_date);
-      }
-      if (options?.to_date) {
-        query = query.lte('created_at', options.to_date);
-      }
-
-      // Apply pagination and ordering
-      query = query.order('created_at', { ascending: false });
-      
-      if (options?.limit) {
-        query = query.limit(options.limit);
-      }
-      if (options?.offset) {
-        query = query.range(options.offset, options.offset + (options?.limit || 50) - 1);
-      }
-
-      const { data, error, count } = await query;
-
-      if (error) {
-        console.error('Failed to get logs:', error);
-        return { logs: [], total: 0 };
-      }
-
-      return {
-        logs: data || [],
-        total: count || 0
-      };
-    } catch (error) {
-      console.error('Error fetching logs:', error);
-      return { logs: [], total: 0 };
+    // Trim logs if they exceed the maximum
+    if (this.logs.length > this.maxLogs) {
+      this.logs = this.logs.slice(0, this.maxLogs);
     }
+
+    // In production, you might want to:
+    // - Send logs to a logging service
+    // - Store them in a database
+    // - Write them to a file
+    console.log(`[${entry.action}] ${entry.details}`);
   }
 
-  /**
-   * Get user's recent activity
-   */
-  async getUserActivity(username: string, limit: number = 10): Promise<ActivityLog[]> {
-    const { logs } = await this.getLogs({
-      username,
-      limit
-    });
-    return logs;
+  getLogs(limit?: number): ActivityLog[] {
+    return limit ? this.logs.slice(0, limit) : this.logs;
   }
 
-  /**
-   * Get recent failed login attempts
-   */
-  async getFailedLogins(username?: string, hours: number = 24): Promise<ActivityLog[]> {
-    const fromDate = new Date();
-    fromDate.setHours(fromDate.getHours() - hours);
-    
-    const { logs } = await this.getLogs({
-      username,
-      action: 'login_failed',
-      from_date: fromDate.toISOString()
-    });
-    
-    return logs;
+  getLogsByUser(userId: string, limit?: number): ActivityLog[] {
+    const userLogs = this.logs.filter(log => log.userId === userId);
+    return limit ? userLogs.slice(0, limit) : userLogs;
   }
 
-  /**
-   * Clear old logs (older than specified days)
-   */
-  async clearOldLogs(days: number = 90): Promise<void> {
-    try {
-      // If Supabase is not configured, skip
-      if (!supabase) {
-        console.log('[Activity Logger] Supabase not configured');
-        return;
-      }
+  getLogsByAction(action: LogAction, limit?: number): ActivityLog[] {
+    const actionLogs = this.logs.filter(log => log.action === action);
+    return limit ? actionLogs.slice(0, limit) : actionLogs;
+  }
 
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - days);
-
-      const { error } = await supabase
-        .from('activity_logs')
-        .delete()
-        .lt('created_at', cutoffDate.toISOString());
-
-      if (error) {
-        console.error('Failed to clear old logs:', error);
-      }
-    } catch (error) {
-      console.error('Error clearing old logs:', error);
-    }
+  clearLogs(): void {
+    this.logs = [];
   }
 }
 
-// Export singleton instance
+// Export a singleton instance
 export const activityLogger = new ActivityLogger();
-
-// Export for type usage
-export default ActivityLogger;
