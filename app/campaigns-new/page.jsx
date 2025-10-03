@@ -3,103 +3,100 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ===============================
-// CONSTANTS
-// ===============================
-const CAMPAIGN_STATUS = {
-  DRAFT: 'draft',
-  READY: 'ready',
-  RUNNING: 'running',
-  PAUSED: 'paused',
-  COMPLETED: 'completed',
-  FAILED: 'failed'
-};
+interface Campaign {
+  id: string;
+  name: string;
+  message: string;
+  recipients: any[];
+  recipients_count: number;
+  sent_count: number;
+  failed_count: number;
+  status: string;
+  delay: number;
+  green_api_instance?: string;
+  green_api_token?: string;
+  created_at: string;
+}
 
-// ===============================
-// MAIN COMPONENT
-// ===============================
+interface Contact {
+  id: string;
+  name: string;
+  phone: string;
+  tags?: string[];
+}
+
 export default function CampaignsNewPage() {
-  // State Management
-  const [campaigns, setCampaigns] = useState([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [logs, setLogs] = useState([]);
+  const [sendingCampaignId, setSendingCampaignId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('create');
+  const [logs, setLogs] = useState<string[]>([]);
   
-  // Form State
+  const [greenApiConfig, setGreenApiConfig] = useState({
+    instanceId: '',
+    token: ''
+  });
+  
   const [formData, setFormData] = useState({
     name: '',
     message: '',
     recipients: '',
-    delay: 2000
+    delay: 30,
+    target_type: 'all',
+    selected_tags: [] as string[]
   });
 
-  // Statistics
-  const [stats, setStats] = useState({
-    total: 0,
-    sent: 0,
-    failed: 0,
-    pending: 0
-  });
-
-  // Green API Credentials
-  const [greenApiCredentials, setGreenApiCredentials] = useState({
-    instanceId: '',
-    token: ''
-  });
-
-  // ===============================
-  // INITIALIZATION
-  // ===============================
   useEffect(() => {
     loadCampaigns();
-    loadGreenApiCredentials();
+    loadContacts();
+    loadGreenApiConfig();
   }, []);
 
-  const loadGreenApiCredentials = async () => {
+  const loadGreenApiConfig = () => {
+    const instanceId = localStorage.getItem('green_api_instance') || '';
+    const token = localStorage.getItem('green_api_token') || '';
+    
+    if (instanceId && token) {
+      setGreenApiConfig({ instanceId, token });
+    }
+  };
+
+  const loadContacts = async () => {
     try {
-      // נסה לטעון מ-localStorage
-      const instanceId = localStorage.getItem('greenApiInstanceId') || localStorage.getItem('greenApiId');
-      const token = localStorage.getItem('greenApiToken') || localStorage.getItem('greenApiKey');
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*');
       
-      if (instanceId && token) {
-        setGreenApiCredentials({ instanceId, token });
-        addLog('success', 'חיבור ל-WhatsApp פעיל ✓');
-      } else {
-        // נסה לטעון מטבלת settings אם קיימת
-        try {
-          const { data, error } = await supabase
-            .from('settings')
-            .select('*')
-            .limit(1)
-            .single();
-          
-          if (data) {
-            const id = data.green_api_instance_id || data.greenApiInstanceId || data.instanceId;
-            const tk = data.green_api_token || data.greenApiToken || data.token;
-            
-            if (id && tk) {
-              setGreenApiCredentials({ instanceId: id, token: tk });
-              localStorage.setItem('greenApiInstanceId', id);
-              localStorage.setItem('greenApiToken', tk);
-              addLog('success', 'חיבור ל-WhatsApp נטען מההגדרות ✓');
-            }
+      if (error) {
+        console.error('Error loading contacts:', error);
+        return;
+      }
+      
+      if (data) {
+        setContacts(data as Contact[]);
+        
+        const tags = new Set<string>();
+        data.forEach((contact: Contact) => {
+          if (contact.tags) {
+            contact.tags.forEach(tag => tags.add(tag));
           }
-        } catch (settingsError) {
-          console.log('No settings table or error loading:', settingsError);
+        });
+        
+        if (tags.size === 0) {
+          ['לקוחות', 'ספקים', 'עובדים', 'VIP', 'חדשים'].forEach(tag => tags.add(tag));
         }
         
-        if (!greenApiCredentials.instanceId) {
-          addLog('warning', 'חסרים פרטי חיבור ל-WhatsApp - הגדר בדף ההגדרות');
-        }
+        setAvailableTags(Array.from(tags));
       }
     } catch (error) {
-      addLog('error', `שגיאה בטעינת פרטי חיבור: ${error.message}`);
+      console.error('Error:', error);
     }
   };
 
@@ -112,41 +109,63 @@ export default function CampaignsNewPage() {
       
       if (error) {
         console.error('Error loading campaigns:', error);
-        addLog('warning', 'לא ניתן לטעון קמפיינים קיימים');
         return;
       }
       
-      if (data && data.length > 0) {
-        setCampaigns(data);
-        addLog('info', `נטענו ${data.length} קמפיינים`);
-      } else {
-        addLog('info', 'אין קמפיינים קיימים');
+      if (data) {
+        setCampaigns(data as Campaign[]);
       }
     } catch (error) {
       console.error('Error:', error);
-      addLog('error', `שגיאה בטעינת קמפיינים: ${error.message}`);
     }
   };
 
-  // ===============================
-  // CAMPAIGN CREATION
-  // ===============================
+  const getTargetRecipients = () => {
+    let targetContacts: Contact[] = [];
+    
+    switch (formData.target_type) {
+      case 'all':
+        targetContacts = contacts;
+        break;
+      
+      case 'tags':
+        targetContacts = contacts.filter(contact => 
+          contact.tags?.some(tag => formData.selected_tags.includes(tag))
+        );
+        break;
+      
+      case 'manual':
+        const manualNumbers = formData.recipients
+          .split('\n')
+          .map(phone => phone.trim())
+          .filter(phone => phone.length > 0);
+        
+        return manualNumbers.map(phone => ({
+          phone,
+          name: ''
+        }));
+    }
+    
+    return targetContacts.map(contact => ({
+      phone: contact.phone,
+      name: contact.name || ''
+    }));
+  };
+
   const createCampaign = async () => {
     try {
       setIsCreating(true);
-      addLog('info', 'יוצר קמפיין חדש...');
 
-      if (!formData.name || !formData.message || !formData.recipients) {
-        throw new Error('נא למלא את כל השדות הנדרשים');
+      if (!formData.name || !formData.message) {
+        alert('נא למלא שם קמפיין והודעה');
+        return;
       }
 
-      const recipientsList = formData.recipients
-        .split('\n')
-        .map(phone => phone.trim())
-        .filter(phone => phone.length > 0);
+      const recipientsList = getTargetRecipients();
 
       if (recipientsList.length === 0) {
-        throw new Error('לא נמצאו מספרי טלפון תקינים');
+        alert('לא נבחרו נמענים');
+        return;
       }
 
       const campaignData = {
@@ -156,10 +175,10 @@ export default function CampaignsNewPage() {
         recipients_count: recipientsList.length,
         sent_count: 0,
         failed_count: 0,
-        status: CAMPAIGN_STATUS.READY,
-        delay: formData.delay,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        status: 'ready',
+        delay: formData.delay * 1000,
+        green_api_instance: greenApiConfig.instanceId || null,
+        green_api_token: greenApiConfig.token || null
       };
 
       const { data: campaign, error } = await supabase
@@ -170,409 +189,237 @@ export default function CampaignsNewPage() {
 
       if (error) throw error;
 
-      setCampaigns([campaign, ...campaigns]);
+      setCampaigns([campaign as Campaign, ...campaigns]);
       
       setFormData({
         name: '',
         message: '',
         recipients: '',
-        delay: 2000
+        delay: 30,
+        target_type: 'all',
+        selected_tags: []
       });
 
-      addLog('success', `קמפיין "${campaign.name}" נוצר בהצלחה עם ${recipientsList.length} נמענים`);
+      alert(`קמפיין נוצר בהצלחה עם ${recipientsList.length} נמענים`);
       setActiveTab('campaigns');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Create campaign error:', error);
-      addLog('error', error.message);
+      alert('שגיאה: ' + error.message);
     } finally {
       setIsCreating(false);
     }
   };
 
-  // ===============================
-  // CAMPAIGN EXECUTION
-  // ===============================
-  const startCampaign = async (campaign) => {
+  const sendWhatsAppMessage = async (phone: string, message: string, instanceId: string, token: string) => {
     try {
-      if (!greenApiCredentials.instanceId || !greenApiCredentials.token) {
-        addLog('error', 'חסרים פרטי חיבור ל-WhatsApp. עבור להגדרות להגדרת החיבור.');
-        return;
+      let formattedPhone = phone.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '972' + formattedPhone.substring(1);
+      }
+      if (!formattedPhone.startsWith('972')) {
+        formattedPhone = '972' + formattedPhone;
       }
 
-      setIsSending(true);
-      addLog('info', `מתחיל שליחת קמפיין: ${campaign.name}`);
+      const apiUrl = `https://api.green-api.com/waInstance${instanceId}/sendMessage/${token}`;
       
-      await updateCampaignStatus(campaign.id, CAMPAIGN_STATUS.RUNNING);
-      
-      const recipients = campaign.recipients || [];
-      const totalRecipients = recipients.length;
-      let sentCount = 0;
-      let failedCount = 0;
-
-      setStats({
-        total: totalRecipients,
-        sent: 0,
-        failed: 0,
-        pending: totalRecipients
-      });
-
-      for (let i = 0; i < recipients.length; i++) {
-        const recipient = recipients[i];
-        
-        // בדוק אם הקמפיין הושהה
-        const { data: currentCampaign } = await supabase
-          .from('campaigns')
-          .select('status')
-          .eq('id', campaign.id)
-          .single();
-        
-        if (currentCampaign?.status === CAMPAIGN_STATUS.PAUSED) {
-          addLog('warning', 'הקמפיין הושהה');
-          break;
-        }
-
-        try {
-          addLog('info', `שולח הודעה ${i + 1}/${totalRecipients} ל-${recipient}`);
-          
-          const result = await sendWhatsAppMessage({
-            phone: recipient,
-            message: campaign.message,
-            campaignId: campaign.id
-          });
-
-          if (result.success) {
-            sentCount++;
-            setStats(prev => ({
-              ...prev,
-              sent: sentCount,
-              pending: totalRecipients - sentCount - failedCount
-            }));
-            addLog('success', `✓ נשלח בהצלחה ל-${recipient}`);
-          } else {
-            throw new Error(result.error || 'שגיאה בשליחה');
-          }
-
-        } catch (error) {
-          failedCount++;
-          setStats(prev => ({
-            ...prev,
-            failed: failedCount,
-            pending: totalRecipients - sentCount - failedCount
-          }));
-          addLog('error', `✗ נכשל: ${recipient} - ${error.message}`);
-        }
-
-        // עדכן את הקמפיין בדאטהבייס
-        await supabase
-          .from('campaigns')
-          .update({
-            sent_count: sentCount,
-            failed_count: failedCount,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', campaign.id);
-
-        // השהייה בין הודעות
-        if (i < recipients.length - 1) {
-          const delaySeconds = (campaign.delay || 2000) / 1000;
-          addLog('info', `ממתין ${delaySeconds} שניות...`);
-          await new Promise(resolve => setTimeout(resolve, campaign.delay || 2000));
-        }
-      }
-
-      const finalStatus = failedCount === totalRecipients 
-        ? CAMPAIGN_STATUS.FAILED 
-        : CAMPAIGN_STATUS.COMPLETED;
-      
-      await updateCampaignStatus(campaign.id, finalStatus);
-      
-      addLog('success', `קמפיין הסתיים: ${sentCount} נשלחו, ${failedCount} נכשלו`);
-      await loadCampaigns();
-
-    } catch (error) {
-      console.error('Campaign execution error:', error);
-      addLog('error', `שגיאה קריטית: ${error.message}`);
-      await updateCampaignStatus(campaign.id, CAMPAIGN_STATUS.FAILED);
-    } finally {
-      setIsSending(false);
-      setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
-    }
-  };
-
-  // ===============================
-  // WHATSAPP SENDER
-  // ===============================
-  const sendWhatsAppMessage = async ({ phone, message, campaignId }) => {
-    try {
-      const formattedPhone = formatPhoneNumber(phone);
-      
-      const apiUrl = `https://api.green-api.com/waInstance${greenApiCredentials.instanceId}/sendMessage/${greenApiCredentials.token}`;
-      
-      const payload = {
-        chatId: `${formattedPhone}@c.us`,
-        message: message
-      };
-
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          chatId: `${formattedPhone}@c.us`,
+          message: message
+        })
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
         throw new Error(`API Error: ${response.status}`);
       }
 
       const data = await response.json();
-      
-      // נסה לשמור לוג (אם הטבלה קיימת)
-      try {
-        await supabase
-          .from('message_logs')
-          .insert({
-            campaign_id: campaignId,
-            phone: formattedPhone,
-            status: 'sent',
-            message_id: data.idMessage,
-            sent_at: new Date().toISOString()
-          });
-      } catch (logError) {
-        console.log('Could not save message log:', logError);
-      }
-
       return { success: true, messageId: data.idMessage };
       
-    } catch (error) {
-      // נסה לשמור לוג כישלון
-      try {
-        await supabase
-          .from('message_logs')
-          .insert({
-            campaign_id: campaignId,
-            phone: phone,
-            status: 'failed',
-            error: error.message,
-            sent_at: new Date().toISOString()
-          });
-      } catch (logError) {
-        console.log('Could not save error log:', logError);
-      }
-
+    } catch (error: any) {
       return { success: false, error: error.message };
     }
   };
 
-  // ===============================
-  // HELPER FUNCTIONS
-  // ===============================
-  const formatPhoneNumber = (phone) => {
-    let cleaned = phone.replace(/\D/g, '');
-    
-    if (cleaned.startsWith('0')) {
-      cleaned = '972' + cleaned.substring(1);
-    } else if (!cleaned.startsWith('972')) {
-      cleaned = '972' + cleaned;
-    }
-    
-    return cleaned;
-  };
-
-  const updateCampaignStatus = async (campaignId, status) => {
+  const startCampaign = async (campaign: Campaign) => {
     try {
-      const { error } = await supabase
+      const instanceId = campaign.green_api_instance || greenApiConfig.instanceId;
+      const token = campaign.green_api_token || greenApiConfig.token;
+
+      if (!instanceId || !token) {
+        alert('חסרים פרטי Green API. עבור להגדרות כדי להגדיר אותם.');
+        window.location.href = '/admin/settings';
+        return;
+      }
+
+      if (!confirm(`להתחיל לשלוח ${campaign.recipients_count} הודעות?`)) {
+        return;
+      }
+
+      setIsSending(true);
+      setSendingCampaignId(campaign.id);
+      setLogs([]);
+
+      await supabase
         .from('campaigns')
-        .update({ 
-          status, 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', campaignId);
+        .update({ status: 'running' })
+        .eq('id', campaign.id);
 
-      if (error) throw error;
+      let sentCount = 0;
+      let failedCount = 0;
 
-      setCampaigns(prev => prev.map(c => 
-        c.id === campaignId ? { ...c, status } : c
-      ));
-    } catch (error) {
-      console.error('Update status error:', error);
-      addLog('error', `שגיאה בעדכון סטטוס: ${error.message}`);
+      for (let i = 0; i < campaign.recipients.length; i++) {
+        const recipient = campaign.recipients[i];
+        
+        const { data: currentCampaign } = await supabase
+          .from('campaigns')
+          .select('status')
+          .eq('id', campaign.id)
+          .single();
+
+        if (currentCampaign?.status === 'paused') {
+          setLogs(prev => [...prev, 'הקמפיין הושהה']);
+          break;
+        }
+
+        setLogs(prev => [...prev, `שולח הודעה ${i + 1}/${campaign.recipients_count} ל-${recipient.phone}`]);
+
+        const result = await sendWhatsAppMessage(
+          recipient.phone,
+          campaign.message,
+          instanceId,
+          token
+        );
+
+        if (result.success) {
+          sentCount++;
+          setLogs(prev => [...prev, `✅ נשלח בהצלחה ל-${recipient.phone}`]);
+        } else {
+          failedCount++;
+          setLogs(prev => [...prev, `❌ נכשל: ${recipient.phone} - ${result.error}`]);
+        }
+
+        await supabase
+          .from('campaigns')
+          .update({
+            sent_count: sentCount,
+            failed_count: failedCount
+          })
+          .eq('id', campaign.id);
+
+        loadCampaigns();
+
+        if (i < campaign.recipients.length - 1) {
+          const delaySeconds = (campaign.delay || 30000) / 1000;
+          setLogs(prev => [...prev, `⏳ ממתין ${delaySeconds} שניות...`]);
+          await new Promise(resolve => setTimeout(resolve, campaign.delay || 30000));
+        }
+      }
+
+      await supabase
+        .from('campaigns')
+        .update({ status: 'completed' })
+        .eq('id', campaign.id);
+
+      setLogs(prev => [...prev, `✅ הקמפיין הושלם! נשלחו ${sentCount}, נכשלו ${failedCount}`]);
+      loadCampaigns();
+
+    } catch (error: any) {
+      console.error('Error starting campaign:', error);
+      alert('שגיאה בשליחת הקמפיין: ' + error.message);
+    } finally {
+      setIsSending(false);
+      setSendingCampaignId(null);
     }
   };
 
-  const pauseCampaign = async (campaignId) => {
-    await updateCampaignStatus(campaignId, CAMPAIGN_STATUS.PAUSED);
-    addLog('warning', 'הקמפיין הושהה');
-  };
-
-  const resumeCampaign = async (campaign) => {
-    await startCampaign(campaign);
-  };
-
-  const addLog = (type, message) => {
-    const logEntry = {
-      id: Date.now(),
-      type,
-      message,
-      timestamp: new Date().toLocaleTimeString('he-IL')
-    };
-    setLogs(prev => [logEntry, ...prev].slice(0, 100));
-  };
-
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      [CAMPAIGN_STATUS.DRAFT]: { label: 'טיוטה', color: 'gray' },
-      [CAMPAIGN_STATUS.READY]: { label: 'מוכן', color: 'blue' },
-      [CAMPAIGN_STATUS.RUNNING]: { label: 'רץ', color: 'green' },
-      [CAMPAIGN_STATUS.PAUSED]: { label: 'מושהה', color: 'yellow' },
-      [CAMPAIGN_STATUS.COMPLETED]: { label: 'הושלם', color: 'green' },
-      [CAMPAIGN_STATUS.FAILED]: { label: 'נכשל', color: 'red' }
-    };
-
-    const config = statusConfig[status] || { label: status, color: 'gray' };
-    const colorClasses = {
-      gray: 'bg-gray-500',
-      blue: 'bg-blue-500',
-      green: 'bg-green-500',
-      yellow: 'bg-yellow-500',
-      red: 'bg-red-500'
-    };
+  const pauseCampaign = async (campaignId: string) => {
+    await supabase
+      .from('campaigns')
+      .update({ status: 'paused' })
+      .eq('id', campaignId);
     
-    return (
-      <span className={`${colorClasses[config.color]} text-white px-2 py-1 rounded text-xs`}>
-        {config.label}
-      </span>
-    );
+    loadCampaigns();
   };
 
-  // ===============================
-  // STYLES
-  // ===============================
-  const styles = {
-    container: {
-      maxWidth: '1200px',
-      margin: '0 auto',
-      padding: '20px'
-    },
-    card: {
-      backgroundColor: 'white',
-      borderRadius: '8px',
-      padding: '20px',
-      marginBottom: '20px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    },
-    tabs: {
-      display: 'flex',
-      gap: '10px',
-      marginBottom: '20px',
-      borderBottom: '2px solid #e5e5e5'
-    },
-    tab: {
-      padding: '10px 20px',
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: '16px',
-      borderBottom: '2px solid transparent',
-      marginBottom: '-2px'
-    },
-    tabActive: {
-      borderBottomColor: '#10b981',
-      color: '#10b981',
-      fontWeight: 'bold'
-    },
-    formGroup: {
-      marginBottom: '15px'
-    },
-    label: {
-      display: 'block',
-      marginBottom: '5px',
-      fontWeight: 'bold',
-      fontSize: '14px'
-    },
-    input: {
-      width: '100%',
-      padding: '8px 12px',
-      border: '1px solid #ddd',
-      borderRadius: '4px',
-      fontSize: '14px'
-    },
-    textarea: {
-      width: '100%',
-      padding: '8px 12px',
-      border: '1px solid #ddd',
-      borderRadius: '4px',
-      fontSize: '14px',
-      resize: 'vertical'
-    },
-    button: {
-      padding: '10px 20px',
-      borderRadius: '4px',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: 'bold',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '5px'
-    },
-    buttonPrimary: {
-      backgroundColor: '#10b981',
-      color: 'white'
-    },
-    buttonSecondary: {
-      backgroundColor: '#f3f4f6',
-      color: '#374151'
-    },
-    buttonDisabled: {
-      opacity: 0.5,
-      cursor: 'not-allowed'
-    },
-    stats: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, 1fr)',
-      gap: '15px',
-      marginBottom: '20px'
-    },
-    statCard: {
-      textAlign: 'center',
-      padding: '15px',
-      backgroundColor: '#f9fafb',
-      borderRadius: '8px'
-    },
-    logContainer: {
-      maxHeight: '400px',
-      overflowY: 'auto',
-      fontSize: '13px'
-    },
-    logEntry: {
-      display: 'flex',
-      gap: '10px',
-      padding: '5px 0',
-      borderBottom: '1px solid #f3f4f6'
+  const deleteCampaign = async (campaignId: string) => {
+    if (!confirm('למחוק את הקמפיין?')) return;
+    
+    await supabase
+      .from('campaigns')
+      .delete()
+      .eq('id', campaignId);
+    
+    loadCampaigns();
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'ready': return 'bg-green-100 text-green-800';
+      case 'running': return 'bg-blue-100 text-blue-800';
+      case 'paused': return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  // ===============================
-  // RENDER
-  // ===============================
-  return (
-    <div style={styles.container} dir="rtl">
-      <div style={{ marginBottom: '30px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '10px' }}>
-          מנהל קמפיינים חדש
-        </h1>
-        <p style={{ color: '#6b7280' }}>ניהול ושליחת קמפיינים ב-WhatsApp</p>
-      </div>
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'ready': return 'מוכן';
+      case 'running': return 'שולח...';
+      case 'paused': return 'מושהה';
+      case 'completed': return 'הושלם';
+      default: return status;
+    }
+  };
 
-      {/* Tabs */}
-      <div style={styles.tabs}>
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }} dir="rtl">
+      <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '20px' }}>
+        מנהל קמפיינים
+      </h1>
+
+      {(!greenApiConfig.instanceId || !greenApiConfig.token) && (
+        <div style={{
+          padding: '15px',
+          backgroundColor: '#fef3c7',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span>⚠️ לא הוגדרו פרטי Green API. השליחה לא תעבוד ללא הגדרות.</span>
+          <a href="/admin/settings" style={{
+            padding: '5px 15px',
+            backgroundColor: '#f59e0b',
+            color: 'white',
+            borderRadius: '4px',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            הגדר עכשיו
+          </a>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '2px solid #e5e5e5' }}>
         <button
           style={{
-            ...styles.tab,
-            ...(activeTab === 'create' ? styles.tabActive : {})
+            padding: '10px 20px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '16px',
+            borderBottom: activeTab === 'create' ? '2px solid #10b981' : '2px solid transparent',
+            color: activeTab === 'create' ? '#10b981' : '#000',
+            fontWeight: activeTab === 'create' ? 'bold' : 'normal'
           }}
           onClick={() => setActiveTab('create')}
         >
@@ -580,33 +427,46 @@ export default function CampaignsNewPage() {
         </button>
         <button
           style={{
-            ...styles.tab,
-            ...(activeTab === 'campaigns' ? styles.tabActive : {})
+            padding: '10px 20px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '16px',
+            borderBottom: activeTab === 'campaigns' ? '2px solid #10b981' : '2px solid transparent',
+            color: activeTab === 'campaigns' ? '#10b981' : '#000',
+            fontWeight: activeTab === 'campaigns' ? 'bold' : 'normal'
           }}
           onClick={() => setActiveTab('campaigns')}
         >
           קמפיינים ({campaigns.length})
         </button>
-        <button
-          style={{
-            ...styles.tab,
-            ...(activeTab === 'logs' ? styles.tabActive : {})
-          }}
-          onClick={() => setActiveTab('logs')}
-        >
-          לוגים
-        </button>
       </div>
 
-      {/* Tab Content */}
+      {logs.length > 0 && (
+        <div style={{ 
+          backgroundColor: '#f9fafb', 
+          borderRadius: '8px', 
+          padding: '15px', 
+          marginBottom: '20px',
+          maxHeight: '200px',
+          overflowY: 'auto',
+          fontSize: '12px',
+          fontFamily: 'monospace'
+        }}>
+          {logs.map((log, index) => (
+            <div key={index} style={{ marginBottom: '5px' }}>{log}</div>
+          ))}
+        </div>
+      )}
+
       {activeTab === 'create' && (
-        <div style={styles.card}>
+        <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <h2 style={{ fontSize: '20px', marginBottom: '20px' }}>יצירת קמפיין חדש</h2>
           
-          <div style={styles.formGroup}>
-            <label style={styles.label}>שם הקמפיין</label>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>שם הקמפיין</label>
             <input
-              style={styles.input}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -614,10 +474,10 @@ export default function CampaignsNewPage() {
             />
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>תוכן ההודעה</label>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>תוכן ההודעה</label>
             <textarea
-              style={styles.textarea}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical', minHeight: '100px' }}
               rows={5}
               value={formData.message}
               onChange={(e) => setFormData({ ...formData, message: e.target.value })}
@@ -626,41 +486,82 @@ export default function CampaignsNewPage() {
             <small style={{ color: '#6b7280' }}>{formData.message.length} תווים</small>
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>רשימת נמענים</label>
-            <textarea
-              style={styles.textarea}
-              rows={5}
-              value={formData.recipients}
-              onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
-              placeholder="הכנס מספר טלפון בכל שורה&#10;0501234567&#10;0521234567"
-            />
-            <small style={{ color: '#6b7280' }}>
-              {formData.recipients.split('\n').filter(p => p.trim()).length} מספרים
-            </small>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קהל יעד</label>
+            <select
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
+              value={formData.target_type}
+              onChange={(e) => setFormData({ ...formData, target_type: e.target.value })}
+            >
+              <option value="all">כל אנשי הקשר ({contacts.length})</option>
+              <option value="tags">לפי תגיות</option>
+              <option value="manual">הזנה ידנית</option>
+            </select>
           </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>השהייה בין הודעות (מילישניות)</label>
-            <input
-              style={styles.input}
-              type="number"
+          {formData.target_type === 'tags' && (
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>בחר תגיות</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}>
+                {availableTags.map(tag => (
+                  <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.selected_tags.includes(tag)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({ ...formData, selected_tags: [...formData.selected_tags, tag] });
+                        } else {
+                          setFormData({ ...formData, selected_tags: formData.selected_tags.filter(t => t !== tag) });
+                        }
+                      }}
+                    />
+                    <span>{tag}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {formData.target_type === 'manual' && (
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>רשימת נמענים</label>
+              <textarea
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical', minHeight: '100px' }}
+                rows={5}
+                value={formData.recipients}
+                onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
+                placeholder="הכנס מספר טלפון בכל שורה"
+              />
+            </div>
+          )}
+
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>קצב שליחה</label>
+            <select
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '4px' }}
               value={formData.delay}
-              onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) || 2000 })}
-              min="1000"
-              step="500"
-            />
-            <small style={{ color: '#6b7280' }}>
-              {formData.delay / 1000} שניות בין הודעה להודעה
-            </small>
+              onChange={(e) => setFormData({ ...formData, delay: parseInt(e.target.value) })}
+            >
+              <option value="5">5 שניות</option>
+              <option value="10">10 שניות</option>
+              <option value="30">30 שניות (מומלץ)</option>
+              <option value="60">דקה</option>
+            </select>
           </div>
 
           <button
             style={{
-              ...styles.button,
-              ...styles.buttonPrimary,
-              ...(isCreating ? styles.buttonDisabled : {}),
-              width: '100%'
+              width: '100%',
+              padding: '12px 20px',
+              borderRadius: '4px',
+              border: 'none',
+              cursor: isCreating ? 'not-allowed' : 'pointer',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              backgroundColor: '#10b981',
+              color: 'white',
+              opacity: isCreating ? 0.5 : 1
             }}
             onClick={createCampaign}
             disabled={isCreating}
@@ -672,52 +573,59 @@ export default function CampaignsNewPage() {
 
       {activeTab === 'campaigns' && (
         <div>
-          {stats.total > 0 && (
-            <div style={styles.stats}>
-              <div style={styles.statCard}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total}</div>
-                <div style={{ color: '#6b7280', fontSize: '12px' }}>סה"כ</div>
-              </div>
-              <div style={styles.statCard}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{stats.sent}</div>
-                <div style={{ color: '#6b7280', fontSize: '12px' }}>נשלחו</div>
-              </div>
-              <div style={styles.statCard}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f59e0b' }}>{stats.pending}</div>
-                <div style={{ color: '#6b7280', fontSize: '12px' }}>ממתינים</div>
-              </div>
-              <div style={styles.statCard}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ef4444' }}>{stats.failed}</div>
-                <div style={{ color: '#6b7280', fontSize: '12px' }}>נכשלו</div>
-              </div>
-            </div>
-          )}
-
           {campaigns.map(campaign => (
-            <div key={campaign.id} style={styles.card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <div key={campaign.id} style={{ backgroundColor: 'white', borderRadius: '8px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                 <div>
                   <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.name}</h3>
                   <p style={{ color: '#6b7280', fontSize: '12px' }}>
                     נוצר: {new Date(campaign.created_at).toLocaleString('he-IL')}
                   </p>
                 </div>
-                {getStatusBadge(campaign.status)}
+                <span className={`px-3 py-1 rounded text-sm ${getStatusColor(campaign.status)}`}>
+                  {getStatusText(campaign.status)}
+                </span>
+              </div>
+              
+              <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#f9fafb', borderRadius: '4px' }}>
+                <p style={{ fontSize: '14px', color: '#374151' }}>{campaign.message}</p>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '20px', marginTop: '15px', fontSize: '14px' }}>
+                <span>📋 נמענים: {campaign.recipients_count}</span>
+                <span>✅ נשלחו: {campaign.sent_count || 0}</span>
+                <span>❌ נכשלו: {campaign.failed_count || 0}</span>
               </div>
 
-              <div style={{ display: 'flex', gap: '20px', marginBottom: '15px', fontSize: '14px' }}>
-                <span>נמענים: {campaign.recipients_count}</span>
-                <span>נשלחו: {campaign.sent_count || 0}</span>
-                <span>נכשלו: {campaign.failed_count || 0}</span>
-              </div>
+              {(campaign.sent_count > 0 || campaign.status === 'running') && (
+                <div style={{ marginTop: '15px' }}>
+                  <div style={{ width: '100%', backgroundColor: '#e5e7eb', borderRadius: '4px', height: '8px' }}>
+                    <div style={{
+                      width: `${(campaign.sent_count / campaign.recipients_count) * 100}%`,
+                      backgroundColor: '#10b981',
+                      height: '100%',
+                      borderRadius: '4px',
+                      transition: 'width 0.3s'
+                    }}></div>
+                  </div>
+                  <small style={{ color: '#6b7280' }}>
+                    {Math.round((campaign.sent_count / campaign.recipients_count) * 100)}% הושלם
+                  </small>
+                </div>
+              )}
 
-              <div style={{ display: 'flex', gap: '10px' }}>
-                {campaign.status === CAMPAIGN_STATUS.READY && (
+              <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                {campaign.status === 'ready' && (
                   <button
                     style={{
-                      ...styles.button,
-                      ...styles.buttonPrimary,
-                      ...(isSending ? styles.buttonDisabled : {})
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      cursor: isSending ? 'not-allowed' : 'pointer',
+                      opacity: isSending ? 0.5 : 1,
+                      fontWeight: 'bold'
                     }}
                     onClick={() => startCampaign(campaign)}
                     disabled={isSending}
@@ -726,95 +634,65 @@ export default function CampaignsNewPage() {
                   </button>
                 )}
                 
-                {campaign.status === CAMPAIGN_STATUS.RUNNING && (
+                {campaign.status === 'running' && sendingCampaignId === campaign.id && (
                   <button
                     style={{
-                      ...styles.button,
-                      ...styles.buttonSecondary
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
                     }}
                     onClick={() => pauseCampaign(campaign.id)}
                   >
                     ⏸️ השהה
                   </button>
                 )}
-                
-                {campaign.status === CAMPAIGN_STATUS.PAUSED && (
+
+                {campaign.status === 'paused' && (
                   <button
                     style={{
-                      ...styles.button,
-                      ...styles.buttonPrimary,
-                      ...(isSending ? styles.buttonDisabled : {})
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      cursor: isSending ? 'not-allowed' : 'pointer',
+                      opacity: isSending ? 0.5 : 1,
+                      fontWeight: 'bold'
                     }}
-                    onClick={() => resumeCampaign(campaign)}
+                    onClick={() => startCampaign(campaign)}
                     disabled={isSending}
                   >
-                    ▶️ המשך
+                    ▶️ המשך שליחה
                   </button>
                 )}
-                
-                {campaign.status === CAMPAIGN_STATUS.COMPLETED && (
-                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>
-                    ✅ הושלם בהצלחה
-                  </span>
-                )}
+
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: '#ef4444',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                  onClick={() => deleteCampaign(campaign.id)}
+                >
+                  🗑️ מחק
+                </button>
               </div>
             </div>
           ))}
 
           {campaigns.length === 0 && (
-            <div style={styles.card}>
-              <p style={{ textAlign: 'center', color: '#6b7280' }}>
-                אין קמפיינים. צור קמפיין חדש כדי להתחיל.
-              </p>
+            <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '40px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center', color: '#6b7280' }}>
+              <p style={{ fontSize: '18px', marginBottom: '10px' }}>אין קמפיינים עדיין</p>
+              <p>צור קמפיין חדש כדי להתחיל לשלוח הודעות</p>
             </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'logs' && (
-        <div style={styles.card}>
-          <h2 style={{ fontSize: '20px', marginBottom: '20px' }}>לוג פעילות</h2>
-          
-          <div style={styles.logContainer}>
-            {logs.map(log => (
-              <div key={log.id} style={styles.logEntry}>
-                <span style={{ color: '#6b7280' }}>{log.timestamp}</span>
-                <span>
-                  {log.type === 'success' && '✅'}
-                  {log.type === 'error' && '❌'}
-                  {log.type === 'warning' && '⚠️'}
-                  {log.type === 'info' && 'ℹ️'}
-                </span>
-                <span style={{
-                  color: log.type === 'error' ? '#ef4444' :
-                         log.type === 'success' ? '#10b981' :
-                         log.type === 'warning' ? '#f59e0b' :
-                         '#374151'
-                }}>
-                  {log.message}
-                </span>
-              </div>
-            ))}
-            
-            {logs.length === 0 && (
-              <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px' }}>
-                אין פעילות עדיין
-              </p>
-            )}
-          </div>
-          
-          {logs.length > 0 && (
-            <button
-              style={{
-                ...styles.button,
-                ...styles.buttonSecondary,
-                marginTop: '15px',
-                width: '100%'
-              }}
-              onClick={() => setLogs([])}
-            >
-              🗑️ נקה לוג
-            </button>
           )}
         </div>
       )}
