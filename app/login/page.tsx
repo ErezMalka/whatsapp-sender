@@ -23,6 +23,8 @@ export default function LoginPage() {
         return;
       }
 
+      console.log('Attempting login with:', email);
+
       // שליחת בקשה לשרת
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -33,6 +35,7 @@ export default function LoginPage() {
       });
 
       const data = await response.json();
+      console.log('Server response:', data);
 
       if (!response.ok) {
         // טיפול בשגיאות
@@ -51,10 +54,13 @@ export default function LoginPage() {
       if (data.user) {
         // התחברות הצליחה
         console.log('Login successful:', data.user);
+        console.log('Attempting to navigate to /dashboard');
         
-        // ניתוב לדף הראשי
-        router.push('/dashboard');
-        router.refresh();
+        // ניסיון ניתוב עם טיימאות קצר
+        setTimeout(() => {
+          console.log('Navigating now...');
+          window.location.href = '/dashboard';
+        }, 500);
       }
     } catch (err) {
       console.error('Unexpected error:', err);
@@ -179,12 +185,25 @@ export default function LoginPage() {
           <span className="text-sm text-gray-600">
             אין לך חשבון? 
           </span>
-          <a 
-            href="/register" 
+          <button
+            onClick={() => window.location.href = '/register'}
             className="text-sm text-blue-600 hover:text-blue-700 font-semibold mr-1 transition-colors"
           >
             הירשם עכשיו
-          </a>
+          </button>
+        </div>
+
+        {/* כפתור דיבוג - מעבר ישיר ל-Dashboard */}
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => {
+              console.log('Direct navigation to dashboard');
+              window.location.href = '/dashboard';
+            }}
+            className="text-xs text-gray-500 underline hover:text-gray-700"
+          >
+            מעבר ישיר ל-Dashboard (לדיבוג)
+          </button>
         </div>
 
         {/* פרטי התחברות לבדיקה */}
