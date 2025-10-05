@@ -20,7 +20,7 @@ export default function CookieTestPage() {
       const data = await response.json();
       setAuthStatus(data);
     } catch (error) {
-      setAuthStatus({ error: error.toString() });
+      setAuthStatus({ error: String(error) });
     }
   };
 
