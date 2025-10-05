@@ -1,88 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { usersStore } from '@/lib/users-store';
-import { activityLogger } from '@/lib/activity-logger';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { username, password } = body;
-
-    // Validate input
-    if (!username || !password) {
+    const { email, password } = await request.json();
+    
+    // בדיקת שדות חובה
+    if (!email || !password) {
       return NextResponse.json(
-        { error: 'Username and password are required' },
+        { error: 'Email and password are required' },
         { status: 400 }
       );
     }
 
-    // Log login attempt
-    activityLogger.log({
-      action: 'login_attempt',
-      details: `Login attempt for user: ${username}`,
-      timestamp: new Date().toISOString()
+    // יצירת Supabase client
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+
+    // ניסיון התחברות
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    // Validate user credentials using validateCredentials (not authenticate)
-    const user = usersStore.validateCredentials(username, password);
-    
-    if (!user) {
-      // Log failed login attempt
-      activityLogger.log({
-        action: 'login_failed',
-        details: `Failed login attempt for user: ${username}`,
-        timestamp: new Date().toISOString()
-      });
-
+    if (error) {
+      console.error('Login error:', error);
       return NextResponse.json(
-        { error: 'Invalid credentials' },
+        { error: error.message },
         { status: 401 }
       );
     }
 
-    // Create session token (in production, use JWT or similar)
-    const sessionToken = Buffer.from(JSON.stringify({
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-      timestamp: Date.now()
-    })).toString('base64');
+    if (!data.user) {
+      return NextResponse.json(
+        { error: 'Invalid login credentials' },
+        { status: 401 }
+      );
+    }
 
-    // Set cookie
-    cookies().set('session', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7 // 7 days
-    });
-
-    // Log successful login
-    activityLogger.log({
-      action: 'login_success',
-      userId: user.id,
-      details: `User ${username} logged in successfully`,
-      timestamp: new Date().toISOString()
-    });
-
+    // החזרת תשובה מוצלחת
     return NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role
-      }
+      user: data.user,
+      session: data.session,
+      message: 'Login successful'
     });
 
   } catch (error) {
-    console.error('Login error:', error);
-    
-    // Log error
-    activityLogger.log({
-      action: 'login_error',
-      details: `Login error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      timestamp: new Date().toISOString()
-    });
-
+    console.error('Server error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
