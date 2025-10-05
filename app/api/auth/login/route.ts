@@ -68,9 +68,7 @@ export async function POST(request: NextRequest) {
     });
 
     // הוספת cookie לאימות
-    response.cookies.set({
-      name: 'auth-token',
-      value: session.access_token,
+    response.cookies.set('auth-token', session.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
