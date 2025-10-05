@@ -53,7 +53,7 @@ export default function LoginPage() {
         console.log('Login successful:', data.user);
         
         // ניתוב לדף הראשי
-        router.push('/admin/dashboard');
+        router.push('/dashboard');
         router.refresh();
       }
     } catch (err) {
