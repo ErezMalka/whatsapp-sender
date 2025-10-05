@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,29 +23,32 @@ export default function LoginPage() {
         return;
       }
 
-      // ניסיון התחברות ישירות עם Supabase
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // שליחת בקשה לשרת
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (authError) {
-        console.error('Login error:', authError);
-        
-        // טיפול בשגיאות ספציפיות
-        if (authError.message.includes('Invalid login credentials')) {
+      const data = await response.json();
+
+      if (!response.ok) {
+        // טיפול בשגיאות
+        if (response.status === 401) {
           setError('אימייל או סיסמה שגויים');
-        } else if (authError.message.includes('Email not confirmed')) {
-          setError('נא לאמת את כתובת האימייל שלך');
+        } else if (response.status === 400) {
+          setError('נא למלא את כל השדות');
         } else {
-          setError('שגיאה בהתחברות. נסה שוב');
+          setError(data.error || 'שגיאה בהתחברות. נסה שוב');
         }
         
         setLoading(false);
         return;
       }
 
-      if (data?.user) {
+      if (data.user) {
         // התחברות הצליחה
         console.log('Login successful:', data.user);
         
@@ -61,28 +63,15 @@ export default function LoginPage() {
     }
   };
 
-  // פונקציה לאיפוס סיסמה
+  // פונקציה לאיפוס סיסמה (דמי)
   const handleResetPassword = async () => {
     if (!email) {
       setError('נא להזין כתובת אימייל');
       return;
     }
 
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
-      if (error) {
-        setError('שגיאה בשליחת אימייל איפוס סיסמה');
-      } else {
-        setError('');
-        alert('נשלח אימייל לאיפוס סיסמה. בדוק את תיבת הדואר שלך');
-      }
-    } catch (err) {
-      console.error('Reset password error:', err);
-      setError('שגיאה בשליחת אימייל איפוס');
-    }
+    // בגרסה הזו רק מציגים הודעה
+    alert('פונקציית איפוס סיסמה אינה זמינה בגרסת הדמו. פנה למנהל המערכת.');
   };
 
   return (
@@ -198,13 +187,23 @@ export default function LoginPage() {
           </a>
         </div>
 
-        {/* פרטי התחברות לבדיקה - למחוק בפרודקשן */}
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500 mb-2">לבדיקה:</p>
-          <p className="text-xs text-gray-600" dir="ltr">
-            Email: test@example.com<br/>
-            Password: Test123456
-          </p>
+        {/* פרטי התחברות לבדיקה */}
+        <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-sm font-semibold text-gray-700 mb-3">משתמשים לבדיקה:</p>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between items-center py-1 border-b border-yellow-200">
+              <span className="text-gray-600">מנהל:</span>
+              <span className="text-gray-800 font-mono text-xs" dir="ltr">admin@test.com / admin123</span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-yellow-200">
+              <span className="text-gray-600">משתמש טסט:</span>
+              <span className="text-gray-800 font-mono text-xs" dir="ltr">test@test.com / test123</span>
+            </div>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-gray-600">משתמש רגיל:</span>
+              <span className="text-gray-800 font-mono text-xs" dir="ltr">user@test.com / 1234</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
