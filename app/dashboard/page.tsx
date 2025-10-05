@@ -31,8 +31,18 @@ export default function DashboardPage() {
   };
 
   const handleLogout = () => {
-    document.cookie = 'auth-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    window.location.href = '/login';
+    console.log('Logout clicked!'); // לדיבוג
+    
+    // מחיקת כל ה-cookies
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    
+    // מחיקה ספציפית של auth-token
+    document.cookie = 'auth-token=; Max-Age=0; path=/;';
+    
+    // ניתוב מיידי
+    window.location.replace('/login');
   };
 
   if (loading) {
@@ -54,16 +64,20 @@ export default function DashboardPage() {
             <div className="flex items-center">
               <h1 className="text-2xl font-bold text-gray-800">WhatsApp Sender</h1>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-right mr-4">
+            <div className="flex items-center gap-4">
+              <div className="text-right">
                 <span className="text-sm text-gray-500">מחובר כ:</span>
                 <p className="text-sm font-semibold text-gray-800">
                   {user?.email || 'משתמש'}
                 </p>
               </div>
               <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+                type="button"
+                onClick={() => {
+                  console.log('Button clicked!');
+                  handleLogout();
+                }}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium cursor-pointer"
               >
                 התנתק
               </button>
