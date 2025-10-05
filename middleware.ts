@@ -1,48 +1,62 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
+export function middleware(request: NextRequest) {
+  console.log('Middleware: Processing path:', request.nextUrl.pathname);
   
-  // רענון הסשן
-  const { data: { session } } = await supabase.auth.getSession();
+  // קבלת הטוקן מה-cookies
+  const token = request.cookies.get('auth-token');
+  console.log('Middleware: Token exists:', !!token);
   
-  // נתיבים מוגנים
-  const protectedPaths = ['/admin', '/dashboard'];
-  const isProtectedPath = protectedPaths.some(path => 
-    req.nextUrl.pathname.startsWith(path)
-  );
+  // נתיבים ציבוריים שלא דורשים אימות
+  const publicPaths = [
+    '/login',
+    '/test',
+    '/api/auth/login',
+    '/api/auth/register',
+    '/_next',
+    '/favicon.ico'
+  ];
   
-  // נתיבים פומביים
-  const publicPaths = ['/login', '/register', '/reset-password'];
   const isPublicPath = publicPaths.some(path => 
-    req.nextUrl.pathname.startsWith(path)
+    request.nextUrl.pathname.startsWith(path)
   );
   
-  // אם זה נתיב מוגן ואין סשן - הפנה להתחברות
-  if (isProtectedPath && !session) {
-    return NextResponse.redirect(new URL('/login', req.url));
+  console.log('Middleware: Is public path:', isPublicPath);
+
+  // אם זה נתיב ציבורי - תן לעבור
+  if (isPublicPath) {
+    // אם המשתמש מחובר ומנסה לגשת לדף login
+    if (token && request.nextUrl.pathname === '/login') {
+      console.log('Middleware: User logged in, redirecting to dashboard');
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    return NextResponse.next();
   }
-  
-  // אם יש סשן ומנסה לגשת לדף התחברות - הפנה לדשבורד
-  if (isPublicPath && session) {
-    return NextResponse.redirect(new URL('/admin/dashboard', req.url));
+
+  // אם אין טוקן - הפנה להתחברות
+  if (!token) {
+    console.log('Middleware: No token, redirecting to login');
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('from', request.nextUrl.pathname);
+    return NextResponse.redirect(loginUrl);
   }
-  
-  return res;
+
+  // יש טוקן - תן לעבור
+  console.log('Middleware: Token found, allowing access');
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
     /*
      * Match all request paths except:
+     * - api/webhooks (webhook endpoints)  
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public files (public folder)
+     * - public files (images, etc.)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/webhooks|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.svg$|.*\\.webp$).*)',
   ],
 };
