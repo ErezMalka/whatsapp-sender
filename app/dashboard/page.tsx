@@ -30,19 +30,32 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    console.log('Logout clicked!'); // לדיבוג
-    
-    // מחיקת כל ה-cookies
-    document.cookie.split(";").forEach((c) => {
-      document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-    });
-    
-    // מחיקה ספציפית של auth-token
-    document.cookie = 'auth-token=; Max-Age=0; path=/;';
-    
-    // ניתוב מיידי
-    window.location.replace('/login');
+  const handleLogout = async () => {
+    try {
+      console.log('Starting logout...');
+      
+      // מחיקת cookie מיידית
+      document.cookie = 'auth-token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;';
+      
+      // קריאה ל-API
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      console.log('Logout response:', data);
+
+      // ניתוב ל-login
+      window.location.replace('/login');
+      
+    } catch (error) {
+      console.error('Logout error:', error);
+      // במקרה של שגיאה, עדיין ננתב ל-login
+      window.location.replace('/login');
+    }
   };
 
   if (loading) {
@@ -73,8 +86,9 @@ export default function DashboardPage() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  console.log('Button clicked!');
+                onClick={(e) => {
+                  e.preventDefault();
+                  console.log('Logout button clicked');
                   handleLogout();
                 }}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium cursor-pointer"
